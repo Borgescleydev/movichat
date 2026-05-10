@@ -1,0 +1,68 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../app/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model User {
+  id        String   @id @default(cuid())
+  name      String
+  username  String   @unique
+  password  String
+  role      String   @default("agent")
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  assignedContacts Contact[] @relation("AssignedAgent")
+}
+
+model PipelineColumn {
+  id        String   @id @default(cuid())
+  name      String
+  order     Int
+  isDefault Boolean  @default(false)
+  color     String   @default("#6366f1")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  contacts Contact[]
+}
+
+model Contact {
+  id           String   @id @default(cuid())
+  name         String
+  phone        String   @unique
+  email        String?
+  notes        String?
+  columnId     String
+  assignedToId String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  column     PipelineColumn @relation(fields: [columnId], references: [id])
+  assignedTo User?          @relation("AssignedAgent", fields: [assignedToId], references: [id])
+  messages   Message[]
+}
+
+model Message {
+  id        String   @id @default(cuid())
+  contactId String
+  body      String
+  fromMe    Boolean  @default(false)
+  timestamp DateTime @default(now())
+  status    String   @default("received")
+
+  contact Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+}
+
+model WhatsAppSession {
+  id          String   @id @default("default")
+  status      String   @default("disconnected")
+  qrCode      String?
+  phone       String?
+  updatedAt   DateTime @updatedAt
+}
