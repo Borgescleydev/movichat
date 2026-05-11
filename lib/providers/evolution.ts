@@ -18,7 +18,6 @@ export class EvolutionApiProvider implements WhatsAppProvider {
       headers: this.headers(config.apiKey),
       body: JSON.stringify({
         instanceName,
-        token: config.apiKey,
         qrcode: true,
         integration: "WHATSAPP-BAILEYS",
         webhook: {
