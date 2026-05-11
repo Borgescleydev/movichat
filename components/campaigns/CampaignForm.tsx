@@ -53,11 +53,8 @@ interface CampaignFormProps {
   } | null;
 }
 
-const CHANNELS = [
-  { value: "whatsapp", label: "WhatsApp", icon: "💬" },
-  { value: "sms", label: "SMS", icon: "📱" },
-  { value: "email", label: "E-mail", icon: "📧" },
-];
+// Only WhatsApp is supported
+const CHANNEL = "whatsapp";
 
 const SEND_TYPES = [
   { value: "scheduled", label: "Envio único", description: "Uma vez em data/hora específica", icon: "📅" },
@@ -97,7 +94,7 @@ export default function CampaignForm({ onClose, onSaved, editing }: CampaignForm
   // Step 1 — Basic
   const [name, setName] = useState(editing?.name || "");
   const [description, setDescription] = useState(editing?.description || "");
-  const [channel, setChannel] = useState(editing?.channel || "whatsapp");
+  const channel = CHANNEL;
   const [templateId, setTemplateId] = useState(editing?.templateId || "");
   const [instanceId, setInstanceId] = useState(editing?.instanceId || "");
 
@@ -366,27 +363,6 @@ export default function CampaignForm({ onClose, onSaved, editing }: CampaignForm
                   className="w-full border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2"
                   style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
                 />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-1.5" style={{ color: "var(--text-primary)" }}>Canal de envio *</label>
-                <div className="flex gap-2">
-                  {CHANNELS.map((c) => (
-                    <button
-                      key={c.value}
-                      type="button"
-                      onClick={() => setChannel(c.value)}
-                      className="flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border-2 text-sm font-medium transition-all"
-                      style={
-                        channel === c.value
-                          ? { borderColor: "var(--primary)", backgroundColor: "var(--primary-light)", color: "var(--primary)" }
-                          : { borderColor: "var(--border)", color: "var(--text-secondary)" }
-                      }
-                    >
-                      <span>{c.icon}</span> {c.label}
-                    </button>
-                  ))}
-                </div>
               </div>
 
               <div>
@@ -847,7 +823,7 @@ export default function CampaignForm({ onClose, onSaved, editing }: CampaignForm
               <div className="rounded-xl p-4" style={{ backgroundColor: "var(--primary-light)", border: "1px solid color-mix(in srgb, var(--primary) 20%, transparent)" }}>
                 <p className="text-sm font-semibold mb-2" style={{ color: "var(--primary)" }}>Resumo da campanha</p>
                 <ul className="text-xs space-y-1" style={{ color: "var(--primary)" }}>
-                  <li>• Canal: {CHANNELS.find((c) => c.value === channel)?.label || channel}</li>
+                  <li>• Canal: 💬 WhatsApp</li>
                   <li>• {selectedGroupIds.length} grupo{selectedGroupIds.length !== 1 ? "s" : ""} selecionado{selectedGroupIds.length !== 1 ? "s" : ""}</li>
                   <li>• Tipo: {SEND_TYPES.find((t) => t.value === sendType)?.label}</li>
                   {sendType === "recurring" && <li>• Repetição: {RECURRENCE_OPTIONS.find((r) => r.value === repeatType)?.label}{repeatType === "custom" ? ` (${repeatEveryX} ${repeatEveryUnit})` : ""}</li>}

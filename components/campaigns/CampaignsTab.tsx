@@ -206,10 +206,6 @@ export default function CampaignsTab() {
                         <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ backgroundColor: style.bg, color: style.color }}>
                           {style.label}
                         </span>
-                        {/* Channel */}
-                        <span className="text-xs px-2 py-0.5 rounded-full" style={{ backgroundColor: "var(--border)", color: "var(--text-muted)" }}>
-                          {CHANNEL_ICON[c.channel] || "📤"} {c.channel}
-                        </span>
                         {/* Send type */}
                         <span className="text-xs px-2 py-0.5 rounded-full" style={{ backgroundColor: "var(--border)", color: "var(--text-muted)" }}>
                           {SEND_TYPE_LABEL[c.sendType] || c.sendType}
