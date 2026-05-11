@@ -130,6 +130,43 @@ export async function POST(req: NextRequest) {
       name: "Message_waMessageId",
       sql: `ALTER TABLE "Message" ADD COLUMN "waMessageId" TEXT`,
     },
+    // Campaign scheduling columns (added in 2026-05-11)
+    {
+      name: "Campaign_channel",
+      sql: `ALTER TABLE "Campaign" ADD COLUMN "channel" TEXT NOT NULL DEFAULT 'whatsapp'`,
+    },
+    {
+      name: "Campaign_sendType",
+      sql: `ALTER TABLE "Campaign" ADD COLUMN "sendType" TEXT NOT NULL DEFAULT 'scheduled'`,
+    },
+    {
+      name: "Campaign_windowStart",
+      sql: `ALTER TABLE "Campaign" ADD COLUMN "windowStart" TEXT`,
+    },
+    {
+      name: "Campaign_windowEnd",
+      sql: `ALTER TABLE "Campaign" ADD COLUMN "windowEnd" TEXT`,
+    },
+    {
+      name: "Campaign_windowDays",
+      sql: `ALTER TABLE "Campaign" ADD COLUMN "windowDays" TEXT NOT NULL DEFAULT '[]'`,
+    },
+    {
+      name: "Campaign_batchSize",
+      sql: `ALTER TABLE "Campaign" ADD COLUMN "batchSize" INTEGER`,
+    },
+    {
+      name: "Campaign_batchIntervalMinutes",
+      sql: `ALTER TABLE "Campaign" ADD COLUMN "batchIntervalMinutes" INTEGER`,
+    },
+    {
+      name: "Campaign_repeatEveryX",
+      sql: `ALTER TABLE "Campaign" ADD COLUMN "repeatEveryX" INTEGER`,
+    },
+    {
+      name: "Campaign_repeatEveryUnit",
+      sql: `ALTER TABLE "Campaign" ADD COLUMN "repeatEveryUnit" TEXT`,
+    },
     {
       name: "ManualDispatchLog",
       sql: `CREATE TABLE IF NOT EXISTS "ManualDispatchLog" (
