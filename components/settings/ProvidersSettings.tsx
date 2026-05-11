@@ -28,6 +28,8 @@ interface Instance {
   createdAt: string;
 }
 
+interface RemoteInstance { name: string; status: string; phone?: string; }
+
 const INPUT_CLS = "w-full border rounded-lg px-3 py-2 text-sm outline-none transition-all focus:ring-2";
 
 export default function ProvidersSettings() {
@@ -38,6 +40,8 @@ export default function ProvidersSettings() {
   const [saving, setSaving] = useState(false);
   const [connecting, setConnecting] = useState<string | null>(null);
   const [qrPolling, setQrPolling] = useState<Record<string, ReturnType<typeof setInterval>>>({});
+  const [pingState, setPingState] = useState<Record<string, { loading: boolean; ok?: boolean; detail?: string }>>({});
+  const [remoteInstances, setRemoteInstances] = useState<Record<string, { loading: boolean; instances?: RemoteInstance[]; error?: string }>>({});
 
   const loadProviders = useCallback(async () => {
     const res = await fetch("/api/providers");
@@ -148,6 +152,32 @@ export default function ProvidersSettings() {
       }
     }, 5000);
     setQrPolling((prev) => ({ ...prev, [key]: interval }));
+  }
+
+  async function pingProvider(id: string) {
+    setPingState((prev) => ({ ...prev, [id]: { loading: true } }));
+    try {
+      const res = await fetch(`/api/providers/${id}/ping`);
+      const data = await safeJson(res);
+      setPingState((prev) => ({ ...prev, [id]: { loading: false, ok: Boolean(data.ok), detail: String(data.detail || "") } }));
+    } catch (e) {
+      setPingState((prev) => ({ ...prev, [id]: { loading: false, ok: false, detail: "Falha de conexão" } }));
+    }
+  }
+
+  async function loadRemoteInstances(id: string) {
+    setRemoteInstances((prev) => ({ ...prev, [id]: { loading: true } }));
+    try {
+      const res = await fetch(`/api/providers/${id}/remote-instances`);
+      const data = await safeJson(res);
+      if (data.error) {
+        setRemoteInstances((prev) => ({ ...prev, [id]: { loading: false, error: String(data.error) } }));
+      } else {
+        setRemoteInstances((prev) => ({ ...prev, [id]: { loading: false, instances: data.instances as RemoteInstance[] } }));
+      }
+    } catch (e) {
+      setRemoteInstances((prev) => ({ ...prev, [id]: { loading: false, error: "Falha de conexão" } }));
+    }
   }
 
   async function disconnectInstance(provider: Provider, instance: Instance) {
@@ -370,12 +400,16 @@ export default function ProvidersSettings() {
               key={provider.id}
               provider={provider}
               connecting={connecting === provider.id}
+              ping={pingState[provider.id]}
+              remote={remoteInstances[provider.id]}
               onConnect={() => connectInstance(provider)}
               onDisconnect={(inst) => disconnectInstance(provider, inst)}
               onDelete={() => deleteProvider(provider.id)}
               onToggle={() => toggleProvider(provider)}
               onSetDefault={() => setDefault(provider.id)}
               onStartPolling={(id) => startQrPolling(provider.id, id)}
+              onPing={() => pingProvider(provider.id)}
+              onLoadRemote={() => loadRemoteInstances(provider.id)}
             />
           ))}
         </div>
@@ -384,19 +418,29 @@ export default function ProvidersSettings() {
   );
 }
 
-function ProviderCard({ provider, connecting, onConnect, onDisconnect, onDelete, onToggle, onSetDefault, onStartPolling }: {
+function ProviderCard({ provider, connecting, ping, remote, onConnect, onDisconnect, onDelete, onToggle, onSetDefault, onStartPolling, onPing, onLoadRemote }: {
   provider: Provider;
   connecting: boolean;
+  ping?: { loading: boolean; ok?: boolean; detail?: string };
+  remote?: { loading: boolean; instances?: RemoteInstance[]; error?: string };
   onConnect: () => void;
   onDisconnect: (inst: Instance) => void;
   onDelete: () => void;
   onToggle: () => void;
   onSetDefault: () => void;
   onStartPolling: (instanceId: string) => void;
+  onPing: () => void;
+  onLoadRemote: () => void;
 }) {
   const typeInfo = PROVIDER_TYPES.find((t) => t.value === provider.type);
   const activeInstances = provider.instances.filter((i) => i.status !== "deleted");
   const connectedCount = provider.instances.filter((i) => i.status === "connected").length;
+  const [showRemote, setShowRemote] = useState(false);
+
+  function handleLoadRemote() {
+    setShowRemote(true);
+    onLoadRemote();
+  }
 
   return (
     <div className="rounded-2xl overflow-hidden" style={{ border: "1px solid var(--border)", backgroundColor: "var(--card-bg)" }}>
@@ -462,22 +506,70 @@ function ProviderCard({ provider, connecting, onConnect, onDisconnect, onDelete,
         </div>
       </div>
 
-      {/* Barra de status + botão */}
+      {/* Resultado do ping */}
+      {ping && !ping.loading && ping.detail && (
+        <div
+          className="px-5 py-2.5 flex items-center gap-2 text-xs"
+          style={{
+            borderTop: "1px solid var(--border)",
+            backgroundColor: ping.ok ? "color-mix(in srgb, var(--success) 8%, transparent)" : "color-mix(in srgb, var(--danger) 8%, transparent)",
+            color: ping.ok ? "var(--success)" : "var(--danger)",
+          }}
+        >
+          {ping.ok
+            ? <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+            : <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+          }
+          {ping.detail}
+        </div>
+      )}
+
+      {/* Barra de ações */}
       <div
-        className="px-5 py-3 flex items-center gap-4"
+        className="px-5 py-3 flex items-center gap-2 flex-wrap"
         style={{ borderTop: "1px solid var(--border)", backgroundColor: "color-mix(in srgb, var(--page-bg) 60%, transparent)" }}
       >
-        <div className="flex items-center gap-1.5">
+        {/* Status local */}
+        <div className="flex items-center gap-1.5 mr-auto">
           <div className="w-2 h-2 rounded-full" style={{ backgroundColor: connectedCount > 0 ? "var(--success)" : "var(--border)" }} />
           <span className="text-xs" style={{ color: "var(--text-secondary)" }}>
-            {connectedCount} conectada{connectedCount !== 1 ? "s" : ""} · {activeInstances.length} instância{activeInstances.length !== 1 ? "s" : ""}
+            {connectedCount} conectada{connectedCount !== 1 ? "s" : ""} · {activeInstances.length} local
           </span>
         </div>
-        <div className="flex-1" />
+
+        {/* Checar conexão */}
+        <button
+          onClick={onPing}
+          disabled={ping?.loading}
+          className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors disabled:opacity-40"
+          style={{ borderColor: "var(--border)", color: "var(--text-secondary)", backgroundColor: "var(--card-bg)" }}
+        >
+          {ping?.loading
+            ? <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
+            : <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+          }
+          {ping?.loading ? "Testando..." : "Testar Conexão"}
+        </button>
+
+        {/* Listar instâncias remotas */}
+        <button
+          onClick={handleLoadRemote}
+          disabled={remote?.loading}
+          className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors disabled:opacity-40"
+          style={{ borderColor: "var(--border)", color: "var(--text-secondary)", backgroundColor: "var(--card-bg)" }}
+        >
+          {remote?.loading
+            ? <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
+            : <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" /></svg>
+          }
+          {remote?.loading ? "Buscando..." : "Listar Instâncias"}
+        </button>
+
+        {/* Nova instância */}
         <button
           onClick={onConnect}
           disabled={connecting || !provider.active}
-          className="flex items-center gap-2 text-white text-xs font-medium px-3 py-1.5 rounded-lg transition-colors disabled:opacity-40"
+          className="flex items-center gap-1.5 text-white text-xs font-medium px-3 py-1.5 rounded-lg transition-colors disabled:opacity-40"
           style={{ backgroundColor: "var(--primary)" }}
           onMouseEnter={(e) => { if (!connecting && provider.active) e.currentTarget.style.backgroundColor = "var(--primary-hover)"; }}
           onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = "var(--primary)"; }}
@@ -489,9 +581,49 @@ function ProviderCard({ provider, connecting, onConnect, onDisconnect, onDelete,
         </button>
       </div>
 
-      {/* Instâncias */}
+      {/* Instâncias remotas */}
+      {showRemote && remote && !remote.loading && (
+        <div style={{ borderTop: "1px solid var(--border)" }}>
+          <div className="px-5 py-2.5 flex items-center justify-between" style={{ backgroundColor: "color-mix(in srgb, var(--info) 8%, transparent)" }}>
+            <span className="text-xs font-semibold" style={{ color: "var(--info)" }}>
+              Instâncias no servidor remoto {remote.instances ? `(${remote.instances.length})` : ""}
+            </span>
+            <button onClick={() => setShowRemote(false)} className="text-xs" style={{ color: "var(--text-muted)" }}>Fechar</button>
+          </div>
+          {remote.error ? (
+            <div className="px-5 py-3 text-xs" style={{ color: "var(--danger)" }}>{remote.error}</div>
+          ) : remote.instances?.length === 0 ? (
+            <div className="px-5 py-3 text-xs" style={{ color: "var(--text-muted)" }}>Nenhuma instância encontrada no servidor remoto.</div>
+          ) : (
+            remote.instances?.map((inst, i) => {
+              const statusColor = inst.status === "open" || inst.status === "connected" || inst.status === "CONNECTED"
+                ? "var(--success)"
+                : inst.status === "connecting" || inst.status === "CONNECTING"
+                ? "var(--warning)"
+                : "var(--text-muted)";
+              return (
+                <div
+                  key={i}
+                  className="px-5 py-2.5 flex items-center gap-3"
+                  style={{ borderBottom: "1px solid color-mix(in srgb, var(--border) 40%, transparent)" }}
+                >
+                  <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: statusColor }} />
+                  <span className="text-sm font-medium flex-1" style={{ color: "var(--text-primary)" }}>{inst.name}</span>
+                  <span className="text-xs" style={{ color: statusColor }}>{inst.status}</span>
+                  {inst.phone && <span className="text-xs" style={{ color: "var(--text-muted)" }}>{inst.phone}</span>}
+                </div>
+              );
+            })
+          )}
+        </div>
+      )}
+
+      {/* Instâncias locais */}
       {activeInstances.length > 0 && (
         <div style={{ borderTop: "1px solid var(--border)" }}>
+          <div className="px-5 py-2" style={{ backgroundColor: "color-mix(in srgb, var(--page-bg) 80%, transparent)" }}>
+            <span className="text-xs font-semibold" style={{ color: "var(--text-muted)" }}>INSTÂNCIAS LOCAIS</span>
+          </div>
           {activeInstances.map((inst) => (
             <InstanceRow
               key={inst.id}
