@@ -1,15 +1,15 @@
-import { getAuthUser } from "@/lib/auth";
+import { getAuthUserFull } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
 import AppLayout from "@/components/layout/AppLayout";
 import SettingsClient from "./SettingsClient";
 
 export default async function SettingsPage() {
-  const user = await getAuthUser();
+  const user = await getAuthUserFull();
   if (!user) redirect("/login");
 
   return (
-    <AppLayout user={{ name: user.name, role: user.role }}>
+    <AppLayout user={{ name: user.name, role: user.role, permissions: user.permissions }}>
       <div className="p-8">
         <div className="mb-6">
           <h1 className="text-2xl font-bold" style={{ color: "var(--text-primary)" }}>Configurações</h1>

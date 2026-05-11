@@ -11,6 +11,23 @@ export interface JWTPayload {
   name: string;
 }
 
+export interface UserPerms {
+  reports?: boolean;
+  pipeline?: boolean;
+  contacts?: boolean;
+  conversations?: boolean;
+  campaigns?: boolean;
+  providers?: boolean;
+}
+
+export type AuthUserFull = JWTPayload & { permissions: UserPerms };
+
+/** Returns true when permission is not explicitly set to false, or user is admin/superadmin. */
+export function hasPermission(user: AuthUserFull, key: keyof UserPerms): boolean {
+  if (["superadmin", "admin"].includes(user.role)) return true;
+  return user.permissions[key] !== false;
+}
+
 export function signToken(payload: JWTPayload): string {
   return jwt.sign(payload, JWT_SECRET, { expiresIn: "7d" });
 }
@@ -36,4 +53,19 @@ export async function getAuthUser(): Promise<JWTPayload | null> {
   const token = cookieStore.get("auth-token")?.value;
   if (!token) return null;
   return verifyToken(token);
+}
+
+/** Like getAuthUser but also loads permissions from DB (for page-level guards). */
+export async function getAuthUserFull(): Promise<AuthUserFull | null> {
+  const user = await getAuthUser();
+  if (!user) return null;
+  if (["superadmin", "admin"].includes(user.role)) {
+    return { ...user, permissions: {} };
+  }
+  // Dynamic import to avoid bundling prisma in edge contexts
+  const { prisma } = await import("./prisma");
+  const dbUser = await prisma.user.findUnique({ where: { id: user.userId }, select: { permissions: true } });
+  let permissions: UserPerms = {};
+  try { permissions = JSON.parse(dbUser?.permissions ?? "{}"); } catch { /* ignore */ }
+  return { ...user, permissions };
 }

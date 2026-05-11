@@ -1,10 +1,11 @@
 "use client";
 
 import Sidebar from "./Sidebar";
+import type { UserPerms } from "@/lib/auth";
 
 interface AppLayoutProps {
   children: React.ReactNode;
-  user: { name: string; role: string };
+  user: { name: string; role: string; permissions?: UserPerms };
 }
 
 export default function AppLayout({ children, user }: AppLayoutProps) {

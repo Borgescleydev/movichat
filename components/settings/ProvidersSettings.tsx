@@ -56,6 +56,8 @@ export default function ProvidersSettings() {
   const [editSaving, setEditSaving] = useState(false);
   const [showTutorial, setShowTutorial] = useState(false);
 
+  const isAdmin = ["superadmin", "admin"].includes(currentUser?.role ?? "");
+
   const loadProviders = useCallback(async () => {
     const res = await fetch("/api/providers");
     if (res.ok) setProviders(await res.json());
@@ -308,7 +310,7 @@ export default function ProvidersSettings() {
             Provedores de API WhatsApp
           </h2>
           <p className="text-sm mt-0.5" style={{ color: "var(--text-secondary)" }}>
-            Conecte UazAPI, Evolution API, WPPConnect ou qualquer provedor compatível
+            {isAdmin ? "Conecte UazAPI, Evolution API, WPPConnect ou qualquer provedor compatível" : "Conecte sua instância WhatsApp em um provedor ativo"}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -323,18 +325,20 @@ export default function ProvidersSettings() {
             </svg>
             Como configurar
           </button>
-          <button
-            onClick={() => setShowNew(true)}
-            className="flex items-center gap-2 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-            style={{ backgroundColor: "var(--primary)" }}
-            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "var(--primary-hover)")}
-            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "var(--primary)")}
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-            </svg>
-            Novo Provedor
-          </button>
+          {isAdmin && (
+            <button
+              onClick={() => setShowNew(true)}
+              className="flex items-center gap-2 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+              style={{ backgroundColor: "var(--primary)" }}
+              onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "var(--primary-hover)")}
+              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "var(--primary)")}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+              Novo Provedor
+            </button>
+          )}
         </div>
       </div>
 
@@ -583,6 +587,7 @@ export default function ProvidersSettings() {
               key={provider.id}
               provider={provider}
               currentUser={currentUser}
+              isAdmin={isAdmin}
               connecting={connecting === provider.id}
               ping={pingState[provider.id]}
               remote={remoteInstances[provider.id]}
@@ -621,9 +626,10 @@ export default function ProvidersSettings() {
   );
 }
 
-function ProviderCard({ provider, currentUser, connecting, ping, remote, importingState, importMsg, onConnect, onDisconnect, onDelete, onToggle, onSetDefault, onStartPolling, onPing, onLoadRemote, onImport, onEdit, onToggleConversations }: {
+function ProviderCard({ provider, currentUser, isAdmin, connecting, ping, remote, importingState, importMsg, onConnect, onDisconnect, onDelete, onToggle, onSetDefault, onStartPolling, onPing, onLoadRemote, onImport, onEdit, onToggleConversations }: {
   provider: Provider;
   currentUser: { userId: string; role: string } | null;
+  isAdmin: boolean;
   connecting: boolean;
   ping?: { loading: boolean; ok?: boolean; detail?: string };
   remote?: { loading: boolean; instances?: RemoteInstance[]; error?: string };
@@ -687,43 +693,45 @@ function ProviderCard({ provider, currentUser, connecting, ping, remote, importi
           </div>
         </div>
 
-        <div className="flex items-center gap-1.5 flex-shrink-0">
-          {!provider.isDefault && (
+        {isAdmin && (
+          <div className="flex items-center gap-1.5 flex-shrink-0">
+            {!provider.isDefault && (
+              <button
+                onClick={onSetDefault}
+                className="text-xs px-2.5 py-1.5 rounded-lg border transition-colors"
+                style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
+              >
+                Padrão
+              </button>
+            )}
             <button
-              onClick={onSetDefault}
+              onClick={onToggle}
               className="text-xs px-2.5 py-1.5 rounded-lg border transition-colors"
               style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
             >
-              Padrão
+              {provider.active ? "Desativar" : "Ativar"}
             </button>
-          )}
-          <button
-            onClick={onToggle}
-            className="text-xs px-2.5 py-1.5 rounded-lg border transition-colors"
-            style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
-          >
-            {provider.active ? "Desativar" : "Ativar"}
-          </button>
-          <button
-            onClick={onEdit}
-            className="p-1.5 rounded-lg transition-colors"
-            style={{ color: "var(--text-secondary)" }}
-            title="Editar provedor"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-            </svg>
-          </button>
-          <button
-            onClick={onDelete}
-            className="p-1.5 rounded-lg transition-colors"
-            style={{ color: "var(--danger)" }}
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-            </svg>
-          </button>
-        </div>
+            <button
+              onClick={onEdit}
+              className="p-1.5 rounded-lg transition-colors"
+              style={{ color: "var(--text-secondary)" }}
+              title="Editar provedor"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+              </svg>
+            </button>
+            <button
+              onClick={onDelete}
+              className="p-1.5 rounded-lg transition-colors"
+              style={{ color: "var(--danger)" }}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Resultado do import */}
@@ -772,22 +780,24 @@ function ProviderCard({ provider, currentUser, connecting, ping, remote, importi
           </span>
         </div>
 
-        {/* Checar conexão */}
-        <button
-          onClick={onPing}
-          disabled={ping?.loading}
-          className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors disabled:opacity-40"
-          style={{ borderColor: "var(--border)", color: "var(--text-secondary)", backgroundColor: "var(--card-bg)" }}
-        >
-          {ping?.loading
-            ? <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
-            : <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-          }
-          {ping?.loading ? "Testando..." : "Testar Conexão"}
-        </button>
+        {/* Checar conexão (admin only) */}
+        {isAdmin && (
+          <button
+            onClick={onPing}
+            disabled={ping?.loading}
+            className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors disabled:opacity-40"
+            style={{ borderColor: "var(--border)", color: "var(--text-secondary)", backgroundColor: "var(--card-bg)" }}
+          >
+            {ping?.loading
+              ? <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
+              : <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+            }
+            {ping?.loading ? "Testando..." : "Testar Conexão"}
+          </button>
+        )}
 
-        {/* Importar instâncias existentes */}
-        {provider.type === "evolution" && (
+        {/* Importar instâncias existentes (admin only) */}
+        {isAdmin && provider.type === "evolution" && (
           <button
             onClick={onImport}
             disabled={importingState}
@@ -803,19 +813,21 @@ function ProviderCard({ provider, currentUser, connecting, ping, remote, importi
           </button>
         )}
 
-        {/* Listar instâncias remotas */}
-        <button
-          onClick={handleLoadRemote}
-          disabled={remote?.loading}
-          className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors disabled:opacity-40"
-          style={{ borderColor: "var(--border)", color: "var(--text-secondary)", backgroundColor: "var(--card-bg)" }}
-        >
-          {remote?.loading
-            ? <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
-            : <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" /></svg>
-          }
-          {remote?.loading ? "Buscando..." : "Listar Instâncias"}
-        </button>
+        {/* Listar instâncias remotas (admin only) */}
+        {isAdmin && (
+          <button
+            onClick={handleLoadRemote}
+            disabled={remote?.loading}
+            className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors disabled:opacity-40"
+            style={{ borderColor: "var(--border)", color: "var(--text-secondary)", backgroundColor: "var(--card-bg)" }}
+          >
+            {remote?.loading
+              ? <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
+              : <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" /></svg>
+            }
+            {remote?.loading ? "Buscando..." : "Listar Instâncias"}
+          </button>
+        )}
 
         {/* Nova instância */}
         <button

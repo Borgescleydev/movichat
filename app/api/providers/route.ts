@@ -5,17 +5,19 @@ import { getAuthUser } from "@/lib/auth";
 export async function GET() {
   try {
     const user = await getAuthUser();
-    if (!user || !["superadmin", "admin"].includes(user.role)) {
-      return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
-    }
+    if (!user) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
 
+    const isAdminOrAbove = ["superadmin", "admin"].includes(user.role);
     const isSuperAdmin = user.role === "superadmin";
 
     const providers = await prisma.apiProvider.findMany({
+      // Non-admin users only see active providers
+      where: isAdminOrAbove ? {} : { active: true },
       orderBy: { createdAt: "asc" },
       include: {
         instances: {
-          where: isSuperAdmin ? {} : { ownerId: user.userId },
+          // Superadmin sees all; admin sees all; agents see only their own
+          where: isSuperAdmin ? {} : isAdminOrAbove ? {} : { ownerId: user.userId },
           orderBy: { createdAt: "desc" },
           include: { owner: { select: { id: true, name: true } } },
         },
