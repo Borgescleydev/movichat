@@ -1,3 +1,9 @@
+export interface GroupInfo {
+  groupJid: string;
+  name: string;
+  participantCount: number;
+}
+
 export interface ProviderConfig {
   baseUrl: string;
   apiKey: string;

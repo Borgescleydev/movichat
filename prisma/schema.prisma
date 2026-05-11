@@ -96,7 +96,96 @@ model WhatsAppInstance {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  provider ApiProvider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  provider  ApiProvider     @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  groups    WhatsAppGroup[]
+  campaigns Campaign[]
+}
+
+model WhatsAppGroup {
+  id               String   @id @default(cuid())
+  instanceId       String
+  groupJid         String
+  name             String
+  participantCount Int      @default(0)
+  lastSyncAt       DateTime @default(now())
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  instance       WhatsAppInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  campaignGroups CampaignGroup[]
+  dispatches     CampaignDispatch[]
+
+  @@unique([instanceId, groupJid])
+}
+
+model MessageTemplate {
+  id           String   @id @default(cuid())
+  name         String
+  body         String
+  variables    String   @default("[]")
+  mediaType    String?
+  mediaUrl     String?
+  mediaCaption String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  campaigns Campaign[]
+}
+
+model Campaign {
+  id                String    @id @default(cuid())
+  name              String
+  description       String?
+  status            String    @default("draft")
+  templateId        String
+  instanceId        String
+  variableValues    String    @default("{}")
+  startAt           DateTime
+  repeatType        String    @default("none")
+  repeatEndAt       DateTime?
+  nextRunAt         DateTime?
+  runCount          Int       @default(0)
+  cadenceMinSeconds Int       @default(10)
+  cadenceMaxSeconds Int       @default(30)
+  cadenceMaxPerHour Int       @default(60)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  template   MessageTemplate  @relation(fields: [templateId], references: [id])
+  instance   WhatsAppInstance @relation(fields: [instanceId], references: [id])
+  groups     CampaignGroup[]
+  dispatches CampaignDispatch[]
+}
+
+model CampaignGroup {
+  id         String @id @default(cuid())
+  campaignId String
+  groupId    String
+  order      Int    @default(0)
+
+  campaign Campaign      @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  group    WhatsAppGroup @relation(fields: [groupId], references: [id])
+
+  @@unique([campaignId, groupId])
+}
+
+model CampaignDispatch {
+  id           String    @id @default(cuid())
+  campaignId   String
+  groupId      String
+  runIndex     Int       @default(0)
+  scheduledFor DateTime
+  sentAt       DateTime?
+  status       String    @default("pending")
+  errorMessage String?
+  messageId    String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  campaign Campaign      @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  group    WhatsAppGroup @relation(fields: [groupId], references: [id])
+
+  @@unique([campaignId, groupId, runIndex])
 }
 
 model SystemSettings {

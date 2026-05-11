@@ -1,4 +1,4 @@
-import type { ProviderConfig, InstanceInfo, SendMessageResult, WhatsAppProvider, WebhookEvent } from "./types";
+import type { ProviderConfig, InstanceInfo, SendMessageResult, WhatsAppProvider, WebhookEvent, GroupInfo } from "./types";
 
 export class EvolutionApiProvider implements WhatsAppProvider {
   type = "evolution";
@@ -94,6 +94,56 @@ export class EvolutionApiProvider implements WhatsAppProvider {
 
     if (!res.ok) throw new Error("Evolution API: falha ao enviar mensagem");
 
+    const data = await res.json();
+    return { messageId: data.key?.id || "", status: "sent" };
+  }
+
+  async fetchGroups(config: ProviderConfig, instanceName: string): Promise<GroupInfo[]> {
+    const base = config.baseUrl.replace(/\/$/, "");
+    const res = await fetch(`${base}/group/fetchAllGroups/${instanceName}?getParticipants=false`, {
+      headers: this.headers(config.apiKey),
+      signal: AbortSignal.timeout(30000),
+    });
+    if (!res.ok) throw new Error(`Evolution API: falha ao buscar grupos (${res.status})`);
+    const data = await res.json();
+    const list = Array.isArray(data) ? data : [];
+    return list
+      .filter((g: Record<string, unknown>) => String(g.id || "").endsWith("@g.us"))
+      .map((g: Record<string, unknown>) => ({
+        groupJid: String(g.id || ""),
+        name: String(g.subject || g.name || "Grupo sem nome"),
+        participantCount: Number(g.size || 0),
+      }));
+  }
+
+  async sendGroupMessage(config: ProviderConfig, instanceName: string, groupJid: string, text: string): Promise<SendMessageResult> {
+    const base = config.baseUrl.replace(/\/$/, "");
+    const res = await fetch(`${base}/message/sendText/${instanceName}`, {
+      method: "POST",
+      headers: this.headers(config.apiKey),
+      body: JSON.stringify({ number: groupJid, text }),
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!res.ok) {
+      const err = await res.text().catch(() => res.status.toString());
+      throw new Error(`Evolution API: falha ao enviar para grupo - ${err}`);
+    }
+    const data = await res.json();
+    return { messageId: data.key?.id || "", status: "sent" };
+  }
+
+  async sendGroupMedia(config: ProviderConfig, instanceName: string, groupJid: string, mediaType: string, mediaUrl: string, caption?: string): Promise<SendMessageResult> {
+    const base = config.baseUrl.replace(/\/$/, "");
+    const res = await fetch(`${base}/message/sendMedia/${instanceName}`, {
+      method: "POST",
+      headers: this.headers(config.apiKey),
+      body: JSON.stringify({ number: groupJid, mediatype: mediaType, media: mediaUrl, caption: caption || "" }),
+      signal: AbortSignal.timeout(30000),
+    });
+    if (!res.ok) {
+      const err = await res.text().catch(() => res.status.toString());
+      throw new Error(`Evolution API: falha ao enviar mídia - ${err}`);
+    }
     const data = await res.json();
     return { messageId: data.key?.id || "", status: "sent" };
   }
