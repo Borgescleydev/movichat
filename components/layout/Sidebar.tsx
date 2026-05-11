@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
 
 const navItems = [
   {
@@ -61,13 +62,62 @@ const navItems = [
   },
 ];
 
+const ROLE_LABELS: Record<string, string> = {
+  superadmin: "Super Admin",
+  admin: "Administrador",
+  agent: "Agente",
+};
+
 interface SidebarProps {
   user: { name: string; role: string };
+}
+
+// ─── Avatar circle ────────────────────────────────────────────
+const AV_COLORS = ["#6366f1","#8b5cf6","#ec4899","#f43f5e","#f97316","#22c55e","#10b981","#06b6d4","#3b82f6","#eab308"];
+function avColor(n: string) { let h=0; for(let i=0;i<n.length;i++) h=(h*31+n.charCodeAt(i))>>>0; return AV_COLORS[h%AV_COLORS.length]; }
+
+function UserAvatar({ name, avatar, size = 32 }: { name: string; avatar?: string | null; size?: number }) {
+  if (avatar) {
+    return (
+      <img
+        src={avatar}
+        alt={name}
+        style={{ width: size, height: size, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }}
+      />
+    );
+  }
+  const ini = name.replace(/[^a-zA-ZÀ-ÿ\s]/g, "").split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join("") || name.charAt(0).toUpperCase();
+  return (
+    <div style={{ width: size, height: size, borderRadius: "50%", flexShrink: 0, backgroundColor: avColor(name), display: "flex", alignItems: "center", justifyContent: "center", fontSize: size * 0.38, fontWeight: 700, color: "#fff", userSelect: "none" }}>
+      {ini}
+    </div>
+  );
 }
 
 export default function Sidebar({ user }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
+  const [showMenu, setShowMenu] = useState(false);
+  const [avatar, setAvatar] = useState<string | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Load avatar from /api/auth/me
+  useEffect(() => {
+    fetch("/api/auth/me").then(r => r.ok ? r.json() : null).then(d => {
+      if (d?.avatar) setAvatar(d.avatar);
+    });
+  }, []);
+
+  // Close menu on outside click
+  useEffect(() => {
+    function onClickOutside(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setShowMenu(false);
+      }
+    }
+    if (showMenu) document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, [showMenu]);
 
   async function handleLogout() {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -100,23 +150,9 @@ export default function Sidebar({ user }: SidebarProps) {
               key={item.href}
               href={item.href}
               className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors"
-              style={
-                isActive
-                  ? { backgroundColor: "var(--primary)", color: "#fff" }
-                  : { color: "var(--sidebar-text)" }
-              }
-              onMouseEnter={(e) => {
-                if (!isActive) {
-                  (e.currentTarget as HTMLElement).style.color = "#fff";
-                  (e.currentTarget as HTMLElement).style.backgroundColor = "rgba(255,255,255,0.08)";
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (!isActive) {
-                  (e.currentTarget as HTMLElement).style.color = "var(--sidebar-text)";
-                  (e.currentTarget as HTMLElement).style.backgroundColor = "transparent";
-                }
-              }}
+              style={isActive ? { backgroundColor: "var(--primary)", color: "#fff" } : { color: "var(--sidebar-text)" }}
+              onMouseEnter={(e) => { if (!isActive) { (e.currentTarget as HTMLElement).style.color = "#fff"; (e.currentTarget as HTMLElement).style.backgroundColor = "rgba(255,255,255,0.08)"; } }}
+              onMouseLeave={(e) => { if (!isActive) { (e.currentTarget as HTMLElement).style.color = "var(--sidebar-text)"; (e.currentTarget as HTMLElement).style.backgroundColor = "transparent"; } }}
             >
               {item.icon}
               {item.label}
@@ -125,37 +161,83 @@ export default function Sidebar({ user }: SidebarProps) {
         })}
       </nav>
 
-      {/* User */}
-      <div className="p-4" style={{ borderTop: "1px solid var(--sidebar-border)" }}>
-        <div className="flex items-center gap-3 mb-3">
+      {/* User section */}
+      <div className="p-4 relative" style={{ borderTop: "1px solid var(--sidebar-border)" }} ref={menuRef}>
+        {/* Profile popup */}
+        {showMenu && (
           <div
-            className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold text-white"
-            style={{ backgroundColor: "var(--primary)" }}
+            className="absolute bottom-full left-4 right-4 mb-2 rounded-xl shadow-2xl overflow-hidden"
+            style={{ backgroundColor: "var(--card-bg)", border: "1px solid var(--border)", zIndex: 100 }}
           >
-            {user.name.charAt(0).toUpperCase()}
+            {/* User info header */}
+            <div className="px-4 py-3 flex items-center gap-3" style={{ borderBottom: "1px solid var(--border)" }}>
+              <UserAvatar name={user.name} avatar={avatar} size={40} />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold truncate" style={{ color: "var(--text-primary)" }}>{user.name}</p>
+                <p className="text-xs" style={{ color: "var(--text-muted)" }}>{ROLE_LABELS[user.role] || user.role}</p>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="py-1">
+              <button
+                onClick={() => { setShowMenu(false); router.push("/settings?tab=profile"); }}
+                className="w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors text-left"
+                style={{ color: "var(--text-primary)" }}
+                onMouseEnter={(e) => (e.currentTarget as HTMLElement).style.backgroundColor = "var(--primary-light)"}
+                onMouseLeave={(e) => (e.currentTarget as HTMLElement).style.backgroundColor = "transparent"}
+              >
+                <svg className="w-4 h-4" style={{ color: "var(--text-muted)" }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                </svg>
+                Editar Perfil
+              </button>
+              <button
+                onClick={() => { setShowMenu(false); router.push("/settings"); }}
+                className="w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors text-left"
+                style={{ color: "var(--text-primary)" }}
+                onMouseEnter={(e) => (e.currentTarget as HTMLElement).style.backgroundColor = "var(--primary-light)"}
+                onMouseLeave={(e) => (e.currentTarget as HTMLElement).style.backgroundColor = "transparent"}
+              >
+                <svg className="w-4 h-4" style={{ color: "var(--text-muted)" }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+                Configurações
+              </button>
+              <div style={{ borderTop: "1px solid var(--border)", margin: "4px 0" }} />
+              <button
+                onClick={handleLogout}
+                className="w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors text-left"
+                style={{ color: "var(--danger)" }}
+                onMouseEnter={(e) => (e.currentTarget as HTMLElement).style.backgroundColor = "color-mix(in srgb, var(--danger) 8%, transparent)"}
+                onMouseLeave={(e) => (e.currentTarget as HTMLElement).style.backgroundColor = "transparent"}
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                </svg>
+                Sair da conta
+              </button>
+            </div>
           </div>
+        )}
+
+        {/* Clickable user card */}
+        <button
+          onClick={() => setShowMenu(v => !v)}
+          className="w-full flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors text-left"
+          style={{ backgroundColor: showMenu ? "rgba(255,255,255,0.08)" : "transparent" }}
+          onMouseEnter={(e) => { if (!showMenu) (e.currentTarget as HTMLElement).style.backgroundColor = "rgba(255,255,255,0.06)"; }}
+          onMouseLeave={(e) => { if (!showMenu) (e.currentTarget as HTMLElement).style.backgroundColor = "transparent"; }}
+        >
+          <UserAvatar name={user.name} avatar={avatar} size={36} />
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-white truncate">{user.name}</p>
-            <p className="text-xs capitalize" style={{ color: "var(--sidebar-text)" }}>{user.role}</p>
+            <p className="text-xs capitalize" style={{ color: "var(--sidebar-text)" }}>{ROLE_LABELS[user.role] || user.role}</p>
           </div>
-        </div>
-        <button
-          onClick={handleLogout}
-          className="w-full flex items-center gap-2 px-3 py-2 text-sm rounded-lg transition-colors"
-          style={{ color: "var(--sidebar-text)" }}
-          onMouseEnter={(e) => {
-            (e.currentTarget as HTMLElement).style.color = "#fff";
-            (e.currentTarget as HTMLElement).style.backgroundColor = "rgba(255,255,255,0.08)";
-          }}
-          onMouseLeave={(e) => {
-            (e.currentTarget as HTMLElement).style.color = "var(--sidebar-text)";
-            (e.currentTarget as HTMLElement).style.backgroundColor = "transparent";
-          }}
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+          <svg className="w-4 h-4 flex-shrink-0 transition-transform" style={{ color: "var(--sidebar-text)", transform: showMenu ? "rotate(180deg)" : "none" }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
           </svg>
-          Sair
         </button>
       </div>
     </aside>

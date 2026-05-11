@@ -133,6 +133,9 @@ const MIGRATIONS = [
   { name: "Campaign_repeatEveryUnit",      sql: `ALTER TABLE "Campaign" ADD COLUMN "repeatEveryUnit" TEXT` },
   // --- Instance ownership ---
   { name: "WhatsAppInstance_ownerId", sql: `ALTER TABLE "WhatsAppInstance" ADD COLUMN "ownerId" TEXT REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE` },
+  // --- User avatar + permissions ---
+  { name: "User_avatar",       sql: `ALTER TABLE "User" ADD COLUMN "avatar" TEXT` },
+  { name: "User_permissions",  sql: `ALTER TABLE "User" ADD COLUMN "permissions" TEXT NOT NULL DEFAULT '{}'` },
 ];
 
 let ran = false;

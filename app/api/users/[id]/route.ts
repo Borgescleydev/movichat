@@ -2,18 +2,53 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser, hashPassword } from "@/lib/auth";
 
+export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const user = await getAuthUser();
+  if (!user) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+
+  const { id } = await params;
+  const isSelf = user.userId === id;
+  const isSuperAdmin = user.role === "superadmin";
+  if (!isSelf && !isSuperAdmin) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
+
+  const [dbUser, instances, contacts, campaigns] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id },
+      select: { id: true, name: true, username: true, role: true, active: true, avatar: true, permissions: true, createdAt: true },
+    }),
+    prisma.whatsAppInstance.findMany({
+      where: { ownerId: id },
+      select: { id: true, label: true, instanceName: true, status: true, phone: true, provider: { select: { name: true, type: true } } },
+    }),
+    prisma.contact.count({ where: { assignedToId: id } }),
+    prisma.campaign.findMany({
+      where: { instance: { ownerId: id } },
+      select: { id: true, name: true, status: true, startAt: true, instance: { select: { label: true, instanceName: true } } },
+      orderBy: { createdAt: "desc" },
+      take: 10,
+    }),
+  ]);
+
+  if (!dbUser) return NextResponse.json({ error: "Usuário não encontrado" }, { status: 404 });
+
+  return NextResponse.json({
+    ...dbUser,
+    permissions: (() => { try { return JSON.parse(dbUser.permissions); } catch { return {}; } })(),
+    resources: { instances, contactCount: contacts, campaigns },
+  });
+}
+
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await getAuthUser();
-  if (!user || !["superadmin", "admin"].includes(user.role)) {
-    return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
-  }
+  if (!user) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
 
   const { id } = await params;
   const body = await req.json();
 
-  // Allow users to edit their own profile (any role)
   const isSelf = user.userId === id;
+  const isSuperAdmin = user.role === "superadmin";
   const isAdminOrAbove = ["superadmin", "admin"].includes(user.role);
+
   if (!isSelf && !isAdminOrAbove) {
     return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
   }
@@ -25,18 +60,23 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (taken) return NextResponse.json({ error: "Nome de usuário já está em uso" }, { status: 400 });
     data.username = body.username.trim();
   }
+  if (body.avatar !== undefined) data.avatar = body.avatar; // base64 or null
+  if (body.role !== undefined && isSuperAdmin) data.role = body.role;
   if (body.role !== undefined && isAdminOrAbove && !isSelf) data.role = body.role;
-  if (body.role !== undefined && user.role === "superadmin") data.role = body.role;
   if (body.active !== undefined && isAdminOrAbove) data.active = body.active;
   if (body.password !== undefined && body.password.trim()) data.password = await hashPassword(body.password.trim());
+  if (body.permissions !== undefined && isAdminOrAbove) data.permissions = JSON.stringify(body.permissions);
 
   const updated = await prisma.user.update({
     where: { id },
     data,
-    select: { id: true, name: true, username: true, role: true, active: true },
+    select: { id: true, name: true, username: true, role: true, active: true, avatar: true, permissions: true },
   });
 
-  return NextResponse.json(updated);
+  return NextResponse.json({
+    ...updated,
+    permissions: (() => { try { return JSON.parse(updated.permissions); } catch { return {}; } })(),
+  });
 }
 
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
