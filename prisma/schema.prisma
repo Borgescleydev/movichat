@@ -98,3 +98,9 @@ model WhatsAppInstance {
 
   provider ApiProvider @relation(fields: [providerId], references: [id], onDelete: Cascade)
 }
+
+model SystemSettings {
+  id        String   @id @default("default")
+  themeJson String   @default("{}")
+  updatedAt DateTime @updatedAt
+}

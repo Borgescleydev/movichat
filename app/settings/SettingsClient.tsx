@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import ProvidersSettings from "@/components/settings/ProvidersSettings";
+import AppearanceSettings from "@/components/settings/AppearanceSettings";
 
 interface Column {
   id: string;
@@ -26,7 +27,7 @@ interface WhatsAppSession {
   phone?: string;
 }
 
-type Tab = "pipeline" | "users" | "providers" | "whatsapp";
+type Tab = "pipeline" | "users" | "providers" | "appearance" | "whatsapp";
 
 export default function SettingsClient({ userRole }: { userRole: string }) {
   const [tab, setTab] = useState<Tab>("pipeline");
@@ -40,6 +41,7 @@ export default function SettingsClient({ userRole }: { userRole: string }) {
           { key: "pipeline", label: "Pipeline" },
           ...(isAdmin ? [{ key: "users", label: "Usuários" }] : []),
           { key: "providers", label: "Provedores API" },
+          { key: "appearance", label: "Aparência" },
           { key: "whatsapp", label: "WhatsApp (legado)" },
         ].map((t) => (
           <button
@@ -57,6 +59,7 @@ export default function SettingsClient({ userRole }: { userRole: string }) {
       {tab === "pipeline" && <PipelineSettings userRole={userRole} />}
       {tab === "users" && isAdmin && <UsersSettings userRole={userRole} />}
       {tab === "providers" && <ProvidersSettings />}
+      {tab === "appearance" && <AppearanceSettings />}
       {tab === "whatsapp" && <WhatsAppSettings />}
     </div>
   );
