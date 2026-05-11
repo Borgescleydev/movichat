@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import ProvidersSettings from "@/components/settings/ProvidersSettings";
 import AppearanceSettings from "@/components/settings/AppearanceSettings";
+import CronSettings from "@/components/settings/CronSettings";
 
 interface Column {
   id: string;
@@ -27,7 +28,7 @@ interface WhatsAppSession {
   phone?: string;
 }
 
-type Tab = "profile" | "pipeline" | "users" | "providers" | "appearance" | "whatsapp";
+type Tab = "profile" | "pipeline" | "users" | "providers" | "appearance" | "whatsapp" | "cron";
 
 export default function SettingsClient({ userRole }: { userRole: string }) {
   const [tab, setTab] = useState<Tab>("profile");
@@ -44,6 +45,7 @@ export default function SettingsClient({ userRole }: { userRole: string }) {
           { key: "providers", label: "Provedores API" },
           { key: "appearance", label: "Aparência" },
           { key: "whatsapp", label: "WhatsApp (legado)" },
+          ...(isAdmin ? [{ key: "cron", label: "Cron Job" }] : []),
         ].map((t) => (
           <button
             key={t.key}
@@ -63,6 +65,7 @@ export default function SettingsClient({ userRole }: { userRole: string }) {
       {tab === "providers" && <ProvidersSettings />}
       {tab === "appearance" && <AppearanceSettings />}
       {tab === "whatsapp" && <WhatsAppSettings />}
+      {tab === "cron" && isAdmin && <CronSettings />}
     </div>
   );
 }
