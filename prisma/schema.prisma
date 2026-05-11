@@ -64,5 +64,37 @@ model WhatsAppSession {
   status      String   @default("disconnected")
   qrCode      String?
   phone       String?
+  instanceId  String?
+  providerId  String?
   updatedAt   DateTime @updatedAt
+}
+
+model ApiProvider {
+  id          String   @id @default(cuid())
+  name        String
+  type        String   // uazapi | evolution | custom
+  baseUrl     String
+  apiKey      String
+  active      Boolean  @default(true)
+  isDefault   Boolean  @default(false)
+  webhookUrl  String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  instances   WhatsAppInstance[]
+}
+
+model WhatsAppInstance {
+  id           String   @id @default(cuid())
+  providerId   String
+  instanceName String
+  instanceId   String?
+  status       String   @default("disconnected")
+  phone        String?
+  qrCode       String?
+  label        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  provider ApiProvider @relation(fields: [providerId], references: [id], onDelete: Cascade)
 }

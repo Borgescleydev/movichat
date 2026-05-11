@@ -1,45 +1,123 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getProvider } from "@/lib/providers";
 
-// This endpoint receives messages from the WhatsApp bridge service
 export async function POST(req: NextRequest) {
-  const secret = req.headers.get("x-webhook-secret");
-  if (secret !== (process.env.WEBHOOK_SECRET || "movichat-webhook")) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  try {
+    const body = await req.json();
 
-  const body = await req.json();
-  const { type, data } = body;
+    // Find which provider this webhook belongs to by trying all active providers
+    const providers = await prisma.apiProvider.findMany({ where: { active: true } });
 
-  if (type === "message") {
-    const { phone, name, message } = data;
+    let parsed = null;
+    let matchedProvider = null;
 
-    // Find or create contact
-    let contact = await prisma.contact.findUnique({ where: { phone } });
-    if (!contact) {
-      const defaultCol = await prisma.pipelineColumn.findFirst({ where: { isDefault: true }, orderBy: { order: "asc" } });
-      if (defaultCol) {
-        contact = await prisma.contact.create({
-          data: { name: name || phone, phone, columnId: defaultCol.id },
-        });
+    for (const p of providers) {
+      try {
+        const adapter = getProvider(p.type);
+        const result = adapter.parseWebhookEvent(body);
+        if (result) {
+          parsed = result;
+          matchedProvider = p;
+          break;
+        }
+      } catch {
+        continue;
       }
     }
 
-    if (contact) {
-      await prisma.message.create({
-        data: { contactId: contact.id, body: message, fromMe: false, status: "received" },
+    if (!parsed || !matchedProvider) {
+      // Fallback: legacy webhook format
+      const { type, data } = body as { type?: string; data?: Record<string, unknown> };
+
+      if (type === "message" && data) {
+        await handleIncomingMessage(
+          String(data.phone || ""),
+          String(data.name || data.phone || ""),
+          String(data.message || "")
+        );
+      }
+      if (type === "status" && data) {
+        await prisma.whatsAppSession.update({
+          where: { id: "default" },
+          data: {
+            status: String(data.status || "disconnected"),
+            qrCode: data.qrCode ? String(data.qrCode) : null,
+            phone: data.phone ? String(data.phone) : null,
+          },
+        });
+      }
+      return NextResponse.json({ ok: true });
+    }
+
+    // Find instance by name
+    const instance = await prisma.whatsAppInstance.findFirst({
+      where: { providerId: matchedProvider.id, instanceName: parsed.instanceName },
+    });
+
+    if (parsed.type === "message") {
+      const { phone, name, message } = parsed.data;
+      if (phone && message) {
+        await handleIncomingMessage(phone, name || phone, message, instance?.id);
+      }
+    }
+
+    if (parsed.type === "status" || parsed.type === "qrcode") {
+      const { status, qrCode, phone_connected } = parsed.data;
+
+      const updateData: Record<string, unknown> = {};
+      if (status) updateData.status = status;
+      if (qrCode !== undefined) updateData.qrCode = qrCode || null;
+      if (phone_connected) updateData.phone = phone_connected;
+      if (status === "connected") updateData.qrCode = null;
+
+      if (instance) {
+        await prisma.whatsAppInstance.update({ where: { id: instance.id }, data: updateData });
+      }
+
+      // Update legacy session
+      await prisma.whatsAppSession.update({
+        where: { id: "default" },
+        data: {
+          status: String(status || "connecting"),
+          qrCode: qrCode || null,
+          phone: phone_connected || null,
+        },
+      }).catch(() => {});
+    }
+
+    return NextResponse.json({ ok: true });
+  } catch (e) {
+    console.error("Webhook error:", e);
+    return NextResponse.json({ error: "Internal error" }, { status: 500 });
+  }
+}
+
+async function handleIncomingMessage(phone: string, name: string, message: string, instanceId?: string) {
+  const cleanPhone = phone.replace(/\D/g, "");
+
+  let contact = await prisma.contact.findUnique({ where: { phone: cleanPhone } });
+
+  if (!contact) {
+    const defaultCol = await prisma.pipelineColumn.findFirst({
+      where: { isDefault: true },
+      orderBy: { order: "asc" },
+    });
+
+    if (defaultCol) {
+      contact = await prisma.contact.create({
+        data: { name, phone: cleanPhone, columnId: defaultCol.id },
       });
-      await prisma.contact.update({ where: { id: contact.id }, data: { updatedAt: new Date() } });
     }
   }
 
-  if (type === "status") {
-    const { status, qrCode, phone } = data;
-    await prisma.whatsAppSession.update({
-      where: { id: "default" },
-      data: { status, qrCode: qrCode || null, phone: phone || null },
+  if (contact) {
+    await prisma.message.create({
+      data: { contactId: contact.id, body: message, fromMe: false, status: "received" },
+    });
+    await prisma.contact.update({
+      where: { id: contact.id },
+      data: { updatedAt: new Date() },
     });
   }
-
-  return NextResponse.json({ ok: true });
 }

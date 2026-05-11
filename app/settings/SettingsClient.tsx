@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import ProvidersSettings from "@/components/settings/ProvidersSettings";
 
 interface Column {
   id: string;
@@ -25,7 +26,7 @@ interface WhatsAppSession {
   phone?: string;
 }
 
-type Tab = "pipeline" | "users" | "whatsapp";
+type Tab = "pipeline" | "users" | "providers" | "whatsapp";
 
 export default function SettingsClient({ userRole }: { userRole: string }) {
   const [tab, setTab] = useState<Tab>("pipeline");
@@ -38,7 +39,8 @@ export default function SettingsClient({ userRole }: { userRole: string }) {
         {[
           { key: "pipeline", label: "Pipeline" },
           ...(isAdmin ? [{ key: "users", label: "Usuários" }] : []),
-          { key: "whatsapp", label: "WhatsApp" },
+          { key: "providers", label: "Provedores API" },
+          { key: "whatsapp", label: "WhatsApp (legado)" },
         ].map((t) => (
           <button
             key={t.key}
@@ -54,6 +56,7 @@ export default function SettingsClient({ userRole }: { userRole: string }) {
 
       {tab === "pipeline" && <PipelineSettings userRole={userRole} />}
       {tab === "users" && isAdmin && <UsersSettings userRole={userRole} />}
+      {tab === "providers" && <ProvidersSettings />}
       {tab === "whatsapp" && <WhatsAppSettings />}
     </div>
   );
