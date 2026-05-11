@@ -42,6 +42,9 @@ export default function ProvidersSettings() {
   const [qrPolling, setQrPolling] = useState<Record<string, ReturnType<typeof setInterval>>>({});
   const [pingState, setPingState] = useState<Record<string, { loading: boolean; ok?: boolean; detail?: string }>>({});
   const [remoteInstances, setRemoteInstances] = useState<Record<string, { loading: boolean; instances?: RemoteInstance[]; error?: string }>>({});
+  const [editProvider, setEditProvider] = useState<Provider | null>(null);
+  const [editForm, setEditForm] = useState({ name: "", baseUrl: "", apiKey: "", type: "" });
+  const [editSaving, setEditSaving] = useState(false);
 
   const loadProviders = useCallback(async () => {
     const res = await fetch("/api/providers");
@@ -79,6 +82,36 @@ export default function ProvidersSettings() {
       alert(`Erro de conexão: ${err instanceof Error ? err.message : err}`);
     } finally {
       setSaving(false);
+    }
+  }
+
+  function openEdit(provider: Provider) {
+    setEditProvider(provider);
+    setEditForm({ name: provider.name, baseUrl: provider.baseUrl, apiKey: "", type: provider.type });
+  }
+
+  async function saveEdit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editProvider) return;
+    setEditSaving(true);
+    try {
+      const body: Record<string, string> = { name: editForm.name, baseUrl: editForm.baseUrl, type: editForm.type };
+      if (editForm.apiKey.trim()) body.apiKey = editForm.apiKey.trim();
+      const res = await fetch(`/api/providers/${editProvider.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (res.ok) {
+        setEditProvider(null);
+        setPingState((prev) => { const n = { ...prev }; delete n[editProvider.id]; return n; });
+        loadProviders();
+      } else {
+        const data = await safeJson(res);
+        alert(String(data.error || "Erro ao salvar"));
+      }
+    } finally {
+      setEditSaving(false);
     }
   }
 
@@ -379,6 +412,75 @@ export default function ProvidersSettings() {
         </div>
       )}
 
+      {/* Modal editar provedor */}
+      {editProvider && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden">
+            <div className="px-6 py-5 flex items-center justify-between" style={{ borderBottom: "1px solid var(--border)" }}>
+              <h3 className="text-base font-semibold" style={{ color: "var(--text-primary)" }}>Editar Provedor</h3>
+              <button onClick={() => setEditProvider(null)} className="text-gray-400 hover:text-gray-600">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <form onSubmit={saveEdit} className="p-6 space-y-4">
+              {/* Tipo */}
+              <div>
+                <label className="block text-sm font-medium mb-2" style={{ color: "var(--text-primary)" }}>Tipo de API</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {PROVIDER_TYPES.map((t) => (
+                    <button key={t.value} type="button" onClick={() => setEditForm({ ...editForm, type: t.value })}
+                      className="flex items-center gap-3 px-4 py-3 rounded-xl border-2 text-left transition-all"
+                      style={editForm.type === t.value ? { borderColor: "var(--primary)", backgroundColor: "var(--primary-light)" } : { borderColor: "var(--border)", backgroundColor: "var(--card-bg)" }}>
+                      <span className="w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold text-white flex-shrink-0"
+                        style={{ backgroundColor: editForm.type === t.value ? "var(--primary)" : "var(--text-muted)" }}>{t.initials}</span>
+                      <span className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>{t.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {/* Nome */}
+              <div>
+                <label className="block text-sm font-medium mb-1" style={{ color: "var(--text-primary)" }}>Nome</label>
+                <input value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                  className={INPUT_CLS} style={{ borderColor: "var(--border)", color: "var(--text-primary)" }} required />
+              </div>
+              {/* URL */}
+              <div>
+                <label className="block text-sm font-medium mb-1" style={{ color: "var(--text-primary)" }}>URL Base</label>
+                <input value={editForm.baseUrl} onChange={(e) => setEditForm({ ...editForm, baseUrl: e.target.value })}
+                  placeholder="https://..." className={INPUT_CLS} style={{ borderColor: "var(--border)", color: "var(--text-primary)" }} required />
+              </div>
+              {/* API Key */}
+              <div>
+                <label className="block text-sm font-medium mb-1" style={{ color: "var(--text-primary)" }}>
+                  {editForm.type === "uazapi" ? "Token (Global API Token)" : "API Key"}
+                </label>
+                <input type="password" value={editForm.apiKey} onChange={(e) => setEditForm({ ...editForm, apiKey: e.target.value })}
+                  placeholder="Deixe em branco para manter a chave atual"
+                  className={INPUT_CLS} style={{ borderColor: "var(--border)", color: "var(--text-primary)" }} />
+                <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
+                  {editForm.type === "uazapi"
+                    ? "Para UazAPI: é o GLOBAL_API_TOKEN configurado no servidor. Encontre nas variáveis de ambiente do servidor ou painel de admin."
+                    : "Para Evolution API: é a AUTHENTICATION_API_KEY do servidor."}
+                </p>
+              </div>
+              <div className="flex gap-3 pt-2">
+                <button type="submit" disabled={editSaving}
+                  className="flex-1 text-white py-2.5 rounded-xl text-sm font-medium disabled:opacity-60"
+                  style={{ backgroundColor: "var(--primary)" }}>
+                  {editSaving ? "Salvando..." : "Salvar Alterações"}
+                </button>
+                <button type="button" onClick={() => setEditProvider(null)}
+                  className="flex-1 py-2.5 rounded-xl text-sm border"
+                  style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>
+                  Cancelar
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Lista de provedores */}
       {providers.length === 0 ? (
         <div
@@ -410,6 +512,7 @@ export default function ProvidersSettings() {
               onStartPolling={(id) => startQrPolling(provider.id, id)}
               onPing={() => pingProvider(provider.id)}
               onLoadRemote={() => loadRemoteInstances(provider.id)}
+              onEdit={() => openEdit(provider)}
             />
           ))}
         </div>
@@ -418,7 +521,7 @@ export default function ProvidersSettings() {
   );
 }
 
-function ProviderCard({ provider, connecting, ping, remote, onConnect, onDisconnect, onDelete, onToggle, onSetDefault, onStartPolling, onPing, onLoadRemote }: {
+function ProviderCard({ provider, connecting, ping, remote, onConnect, onDisconnect, onDelete, onToggle, onSetDefault, onStartPolling, onPing, onLoadRemote, onEdit }: {
   provider: Provider;
   connecting: boolean;
   ping?: { loading: boolean; ok?: boolean; detail?: string };
@@ -431,6 +534,7 @@ function ProviderCard({ provider, connecting, ping, remote, onConnect, onDisconn
   onStartPolling: (instanceId: string) => void;
   onPing: () => void;
   onLoadRemote: () => void;
+  onEdit: () => void;
 }) {
   const typeInfo = PROVIDER_TYPES.find((t) => t.value === provider.type);
   const activeInstances = provider.instances.filter((i) => i.status !== "deleted");
@@ -493,6 +597,16 @@ function ProviderCard({ provider, connecting, ping, remote, onConnect, onDisconn
             style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
           >
             {provider.active ? "Desativar" : "Ativar"}
+          </button>
+          <button
+            onClick={onEdit}
+            className="p-1.5 rounded-lg transition-colors"
+            style={{ color: "var(--text-secondary)" }}
+            title="Editar provedor"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+            </svg>
           </button>
           <button
             onClick={onDelete}
