@@ -124,11 +124,6 @@ export default function CronSettings() {
     }
   }
 
-  const vercelJsonContent = JSON.stringify(
-    { crons: [{ path: "/api/cron/campaign-dispatcher", schedule: "* * * * *" }] },
-    null, 2
-  );
-
   const tabs = [
     { key: "status",    label: "Status & Fila" },
     { key: "config",    label: "Configuração" },
@@ -211,18 +206,16 @@ export default function CronSettings() {
             <>
               {/* Cron info card */}
               <div className="bg-white border border-gray-200 rounded-xl p-5">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse" />
-                  <span className="text-sm font-semibold text-gray-900">Cron ativo no Vercel</span>
-                  <code className="ml-auto text-xs bg-gray-100 text-gray-700 px-2 py-0.5 rounded font-mono">
-                    {status.cron.schedule}
-                  </code>
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="w-2.5 h-2.5 rounded-full bg-indigo-500" />
+                  <span className="text-sm font-semibold text-gray-900">Endpoint do dispatcher</span>
+                  <span className="ml-auto text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded font-medium">Cron externo</span>
                 </div>
-                <div className="flex items-center gap-2 text-xs text-gray-500">
-                  <span>Endpoint:</span>
+                <div className="flex items-center gap-2 text-xs text-gray-500 mb-2">
+                  <span>URL:</span>
                   <code className="bg-gray-100 text-gray-700 px-2 py-0.5 rounded font-mono">{status.cron.path}</code>
                 </div>
-                <p className="text-xs text-gray-400 mt-2">{status.cron.description}</p>
+                <p className="text-xs text-gray-400">Configure um serviço externo (ex: cron-job.org) para chamar este endpoint a cada minuto. Veja a aba <strong>Configuração</strong>.</p>
               </div>
 
               {/* Stats grid */}
@@ -300,43 +293,86 @@ export default function CronSettings() {
       {/* ── CONFIGURAÇÃO ── */}
       {activeSection === "config" && (
         <div className="space-y-5">
-          <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-4">
-            <h3 className="text-sm font-semibold text-gray-900">1. Arquivo vercel.json</h3>
-            <p className="text-sm text-gray-600">
-              O arquivo <code className="bg-gray-100 px-1 rounded text-xs">vercel.json</code> na raiz do projeto configura o cron.
-              Já está configurado no repositório:
-            </p>
-            <CodeBlock>{vercelJsonContent}</CodeBlock>
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-800">
-              <strong>Importante:</strong> O Vercel só executa crons em ambientes de produção. No plano Hobby, o intervalo mínimo é de 1 dia. No Pro, é de 1 minuto.
+
+          {/* Aviso plano Hobby */}
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex gap-3">
+            <svg className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+            </svg>
+            <div className="text-sm text-amber-800">
+              <p className="font-semibold mb-1">Plano Hobby do Vercel — limitação de cron</p>
+              <p>O plano Hobby só permite crons que disparam <strong>uma vez por dia</strong>. Para execução a cada minuto (recomendado para campanhas), use um serviço externo gratuito abaixo.</p>
             </div>
           </div>
 
+          {/* cron-job.org */}
           <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-4">
-            <h3 className="text-sm font-semibold text-gray-900">2. Variável de ambiente (opcional)</h3>
+            <div className="flex items-center gap-2">
+              <span className="w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 text-xs font-bold flex items-center justify-center">1</span>
+              <h3 className="text-sm font-semibold text-gray-900">Configurar cron-job.org (gratuito)</h3>
+            </div>
             <p className="text-sm text-gray-600">
-              Para proteger o endpoint contra chamadas não autorizadas, configure a variável:
+              O <strong>cron-job.org</strong> é um serviço gratuito que chama sua URL a cada minuto — sem limite de execuções.
             </p>
-            <CodeBlock>CRON_SECRET=seu_segredo_aqui</CodeBlock>
-            <p className="text-sm text-gray-600">
-              Se definida, requisições externas precisam enviar o header:
-            </p>
-            <CodeBlock>{`Authorization: Bearer seu_segredo_aqui`}</CodeBlock>
-            <p className="text-xs text-gray-400">
-              Chamadas vindas do próprio Vercel (header <code>x-vercel-cron: 1</code>) são sempre aceitas sem autenticação.
-            </p>
+            <ol className="space-y-2 text-sm text-gray-700">
+              {[
+                <>Acesse <strong>cron-job.org</strong> e crie uma conta gratuita</>,
+                <>Clique em <strong>Create cronjob</strong></>,
+                <>Em <strong>URL</strong>, cole o endpoint abaixo</>,
+                <>Em <strong>Schedule</strong>, selecione <strong>Every minute</strong></>,
+                <>Em <strong>Headers</strong>, adicione o header de autenticação (se tiver CRON_SECRET configurado)</>,
+                <>Salve e ative o job</>,
+              ].map((step, i) => (
+                <li key={i} className="flex gap-2">
+                  <span className="text-indigo-500 font-bold flex-shrink-0">{i + 1}.</span>
+                  <span>{step}</span>
+                </li>
+              ))}
+            </ol>
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-gray-600">URL do endpoint:</p>
+              <CodeBlock>https://movichat.vercel.app/api/cron/campaign-dispatcher</CodeBlock>
+            </div>
           </div>
 
+          {/* Proteção com CRON_SECRET */}
           <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-4">
-            <h3 className="text-sm font-semibold text-gray-900">3. Expressões cron</h3>
+            <div className="flex items-center gap-2">
+              <span className="w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 text-xs font-bold flex items-center justify-center">2</span>
+              <h3 className="text-sm font-semibold text-gray-900">Proteger o endpoint (recomendado)</h3>
+            </div>
+            <p className="text-sm text-gray-600">
+              Para evitar que qualquer pessoa chame o dispatcher, configure a variável de ambiente no Vercel:
+            </p>
+            <CodeBlock>CRON_SECRET=escolha_um_segredo_forte_aqui</CodeBlock>
+            <p className="text-sm text-gray-600">
+              Depois adicione este header no cron-job.org (aba <strong>Headers</strong>):
+            </p>
+            <CodeBlock>{`Authorization: Bearer escolha_um_segredo_forte_aqui`}</CodeBlock>
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-700">
+              Configure a variável em: <strong>vercel.com → movichat → Settings → Environment Variables</strong>
+            </div>
+          </div>
+
+          {/* Teste manual via cURL */}
+          <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-4">
+            <div className="flex items-center gap-2">
+              <span className="w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 text-xs font-bold flex items-center justify-center">3</span>
+              <h3 className="text-sm font-semibold text-gray-900">Testar via cURL</h3>
+            </div>
+            <p className="text-sm text-gray-600">Para verificar se o endpoint responde corretamente:</p>
+            <CodeBlock>{`curl -X GET https://movichat.vercel.app/api/cron/campaign-dispatcher \\
+  -H "Authorization: Bearer seu_cron_secret"`}</CodeBlock>
+            <p className="text-xs text-gray-400">Ou use o botão <strong>"Executar agora"</strong> no topo desta página — ele chama o dispatcher diretamente sem precisar do cURL.</p>
+          </div>
+
+          {/* Expressões cron */}
+          <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-4">
+            <div className="flex items-center gap-2">
+              <span className="w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 text-xs font-bold flex items-center justify-center">4</span>
+              <h3 className="text-sm font-semibold text-gray-900">Referência de expressões cron</h3>
+            </div>
             <CronExpressionGuide />
-          </div>
-
-          <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-4">
-            <h3 className="text-sm font-semibold text-gray-900">4. Chamada manual via cURL</h3>
-            <p className="text-sm text-gray-600">Para testar fora do painel, use cURL:</p>
-            <CodeBlock>{`curl -X GET https://seu-projeto.vercel.app/api/cron/campaign-dispatcher \\
-  -H "Authorization: Bearer seu_segredo_aqui"`}</CodeBlock>
           </div>
         </div>
       )}
