@@ -48,12 +48,14 @@ export async function POST(req: NextRequest) {
     windowStart, windowEnd, windowDays,
     batchSize, batchIntervalMinutes,
     repeatEveryX, repeatEveryUnit,
+    isDraft,
   } = body;
 
   if (!name?.trim()) return NextResponse.json({ error: "Nome obrigatório" }, { status: 400 });
   if (!templateId) return NextResponse.json({ error: "Template obrigatório" }, { status: 400 });
   if (!instanceId) return NextResponse.json({ error: "Instância obrigatória" }, { status: 400 });
-  if (!groupIds?.length) return NextResponse.json({ error: "Selecione ao menos um grupo" }, { status: 400 });
+  // Groups are required only when NOT saving as a bare draft
+  if (!isDraft && !groupIds?.length) return NextResponse.json({ error: "Selecione ao menos um grupo" }, { status: 400 });
 
   const resolvedSendType = sendType || "scheduled";
   const resolvedStartAt = resolvedSendType === "immediate" ? new Date() : (startAt ? new Date(startAt) : new Date());
@@ -82,9 +84,9 @@ export async function POST(req: NextRequest) {
       batchIntervalMinutes: batchIntervalMinutes ? Number(batchIntervalMinutes) : null,
       repeatEveryX: repeatEveryX ? Number(repeatEveryX) : null,
       repeatEveryUnit: repeatEveryUnit || null,
-      groups: {
-        create: (groupIds as string[]).map((groupId, index) => ({ groupId, order: index })),
-      },
+      groups: groupIds?.length
+        ? { create: (groupIds as string[]).map((groupId, index) => ({ groupId, order: index })) }
+        : undefined,
     },
     include: {
       template: { select: { id: true, name: true } },

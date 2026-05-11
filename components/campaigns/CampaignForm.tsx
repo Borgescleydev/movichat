@@ -92,6 +92,7 @@ function toLocalDatetimeValue(iso: string): string {
 export default function CampaignForm({ onClose, onSaved, editing }: CampaignFormProps) {
   const [step, setStep] = useState(1);
   const [saving, setSaving] = useState(false);
+  const [savingDraft, setSavingDraft] = useState(false);
 
   // Step 1 — Basic
   const [name, setName] = useState(editing?.name || "");
@@ -183,6 +184,11 @@ export default function CampaignForm({ onClose, onSaved, editing }: CampaignForm
     setWindowDays((prev) => prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day].sort());
   }
 
+  // Draft only requires step 1 fields
+  function canSaveDraft(): boolean {
+    return name.trim().length > 0 && !!templateId && !!instanceId;
+  }
+
   function canGoNext(): boolean {
     if (step === 1) return name.trim().length > 0 && !!templateId && !!instanceId;
     if (step === 2) return selectedGroupIds.length > 0;
@@ -250,6 +256,61 @@ export default function CampaignForm({ onClose, onSaved, editing }: CampaignForm
       alert(err instanceof Error ? err.message : "Erro inesperado ao salvar");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleSaveDraft() {
+    setSavingDraft(true);
+    try {
+      const defaultStartAt = new Date(Date.now() + 86_400_000).toISOString(); // tomorrow
+      const payload: Record<string, unknown> = {
+        name: name.trim(),
+        description: description.trim() || null,
+        channel,
+        sendType,
+        templateId,
+        instanceId,
+        groupIds: selectedGroupIds,
+        variableValues,
+        startAt: startAt ? new Date(startAt).toISOString() : defaultStartAt,
+        repeatType: sendType === "recurring" ? repeatType : "none",
+        repeatEndAt: (sendType === "recurring" && repeatEndAt) ? new Date(repeatEndAt).toISOString() : null,
+        cadenceMinSeconds: cadenceMin,
+        cadenceMaxSeconds: cadenceMax,
+        cadenceMaxPerHour,
+        windowStart: sendType === "windowed" ? (windowStart || null) : null,
+        windowEnd: sendType === "windowed" ? (windowEnd || null) : null,
+        windowDays: sendType === "windowed" ? windowDays : [],
+        batchSize: sendType === "batch" ? batchSize : null,
+        batchIntervalMinutes: sendType === "batch" ? batchIntervalMinutes : null,
+        repeatEveryX: (sendType === "recurring" && repeatType === "custom") ? repeatEveryX : null,
+        repeatEveryUnit: (sendType === "recurring" && repeatType === "custom") ? repeatEveryUnit : null,
+        isDraft: true,
+      };
+
+      const url = editing ? `/api/campaigns/${editing.id}` : "/api/campaigns";
+      const method = editing ? "PATCH" : "POST";
+
+      let res: Response;
+      try {
+        res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      } catch {
+        alert("Erro de conexão. Verifique sua internet e tente novamente.");
+        return;
+      }
+
+      let data: Record<string, unknown> = {};
+      try { data = await res.json(); } catch { /* non-JSON */ }
+
+      if (res.ok) {
+        onSaved();
+      } else {
+        alert((data.error as string) || `Erro ao salvar rascunho (HTTP ${res.status})`);
+      }
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Erro inesperado");
+    } finally {
+      setSavingDraft(false);
     }
   }
 
@@ -800,15 +861,33 @@ export default function CampaignForm({ onClose, onSaved, editing }: CampaignForm
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 flex items-center justify-between" style={{ borderTop: "1px solid var(--border)" }}>
+        <div className="px-6 py-4 flex items-center justify-between gap-2" style={{ borderTop: "1px solid var(--border)" }}>
           <button
             type="button"
             onClick={() => step > 1 ? setStep(step - 1) : onClose()}
-            className="text-sm px-4 py-2 rounded-lg border"
+            className="text-sm px-4 py-2 rounded-lg border flex-shrink-0"
             style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
           >
             {step === 1 ? "Cancelar" : "← Voltar"}
           </button>
+
+          <div className="flex items-center gap-2">
+            {/* Save as draft — visible whenever step 1 is complete */}
+            {canSaveDraft() && (
+              <button
+                type="button"
+                onClick={handleSaveDraft}
+                disabled={savingDraft || saving}
+                className="text-sm px-4 py-2 rounded-lg border font-medium disabled:opacity-40 flex items-center gap-1.5"
+                style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
+                title="Salvar como rascunho (pode continuar editando depois)"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+                </svg>
+                {savingDraft ? "Salvando..." : editing ? "Salvar rascunho" : "Salvar rascunho"}
+              </button>
+            )}
 
           {step < 4 ? (
             <button
@@ -831,6 +910,7 @@ export default function CampaignForm({ onClose, onSaved, editing }: CampaignForm
               {saving ? "Salvando..." : editing ? "Salvar Alterações" : "Criar Campanha"}
             </button>
           )}
+          </div>
         </div>
       </div>
     </div>
