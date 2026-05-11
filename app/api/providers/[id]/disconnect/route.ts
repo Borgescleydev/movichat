@@ -18,6 +18,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const instance = await prisma.whatsAppInstance.findUnique({ where: { id: instanceId } });
   if (!instance) return NextResponse.json({ error: "Instância não encontrada" }, { status: 404 });
 
+  // Ownership check — only owner or superadmin can disconnect
+  if (user.role !== "superadmin" && instance.ownerId && instance.ownerId !== user.userId) {
+    return NextResponse.json({ error: "Sem permissão para desconectar esta instância" }, { status: 403 });
+  }
+
   const provider = getProvider(apiProvider.type);
 
   try {
@@ -26,7 +31,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       instance.instanceName
     );
   } catch {
-    // Log but don't fail — remove from DB anyway
+    // Non-fatal — remove from DB anyway
   }
 
   await prisma.whatsAppInstance.update({

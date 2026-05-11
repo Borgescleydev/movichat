@@ -9,9 +9,17 @@ export async function GET() {
       return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
     }
 
+    const isSuperAdmin = user.role === "superadmin";
+
     const providers = await prisma.apiProvider.findMany({
       orderBy: { createdAt: "asc" },
-      include: { instances: { orderBy: { createdAt: "desc" } } },
+      include: {
+        instances: {
+          where: isSuperAdmin ? {} : { ownerId: user.userId },
+          orderBy: { createdAt: "desc" },
+          include: { owner: { select: { id: true, name: true } } },
+        },
+      },
     });
 
     const masked = providers.map((p) => ({
@@ -19,6 +27,11 @@ export async function GET() {
       apiKey: p.apiKey.length > 10
         ? p.apiKey.slice(0, 4) + "••••••" + p.apiKey.slice(-4)
         : "••••••",
+      instances: p.instances.map((inst) => ({
+        ...inst,
+        ownerName: inst.owner?.name ?? null,
+        owner: undefined,
+      })),
     }));
 
     return NextResponse.json(masked);
@@ -76,8 +89,7 @@ export async function POST(req: NextRequest) {
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    const stack = e instanceof Error ? e.stack : "";
-    console.error("POST /api/providers ERROR:", msg, stack);
+    console.error("POST /api/providers ERROR:", msg);
     return NextResponse.json({ error: "Erro interno ao criar provedor", detail: msg }, { status: 500 });
   }
 }

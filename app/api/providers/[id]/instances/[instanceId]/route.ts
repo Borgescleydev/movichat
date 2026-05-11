@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/auth";
 
-// PATCH /api/providers/[id]/instances/[instanceId] — update instance settings
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string; instanceId: string }> }
@@ -19,6 +18,11 @@ export async function PATCH(
     where: { id: instanceId, providerId: id },
   });
   if (!instance) return NextResponse.json({ error: "Instância não encontrada" }, { status: 404 });
+
+  // Ownership check
+  if (user.role !== "superadmin" && instance.ownerId && instance.ownerId !== user.userId) {
+    return NextResponse.json({ error: "Sem permissão para editar esta instância" }, { status: 403 });
+  }
 
   const updated = await prisma.whatsAppInstance.update({
     where: { id: instanceId },

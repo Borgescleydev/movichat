@@ -30,6 +30,8 @@ interface Instance {
   createdAt: string;
   conversationsEnabled: boolean;
   providerId?: string;
+  ownerId?: string;
+  ownerName?: string;
 }
 
 interface RemoteInstance { name: string; status: string; phone?: string; }
@@ -39,6 +41,7 @@ const INPUT_CLS = "w-full border rounded-lg px-3 py-2 text-sm outline-none trans
 export default function ProvidersSettings() {
   const [providers, setProviders] = useState<Provider[]>([]);
   const [loading, setLoading] = useState(true);
+  const [currentUser, setCurrentUser] = useState<{ userId: string; role: string } | null>(null);
   const [showNew, setShowNew] = useState(false);
   const [form, setForm] = useState({ name: "", type: "uazapi", baseUrl: "", apiKey: "", isDefault: false });
   const [saving, setSaving] = useState(false);
@@ -60,6 +63,9 @@ export default function ProvidersSettings() {
   }, []);
 
   useEffect(() => {
+    fetch("/api/auth/me").then((r) => r.ok ? r.json() : null).then((d) => {
+      if (d) setCurrentUser({ userId: d.userId, role: d.role });
+    });
     loadProviders();
     return () => { Object.values(qrPolling).forEach(clearInterval); };
   }, [loadProviders]);
@@ -576,6 +582,7 @@ export default function ProvidersSettings() {
             <ProviderCard
               key={provider.id}
               provider={provider}
+              currentUser={currentUser}
               connecting={connecting === provider.id}
               ping={pingState[provider.id]}
               remote={remoteInstances[provider.id]}
@@ -614,8 +621,9 @@ export default function ProvidersSettings() {
   );
 }
 
-function ProviderCard({ provider, connecting, ping, remote, importingState, importMsg, onConnect, onDisconnect, onDelete, onToggle, onSetDefault, onStartPolling, onPing, onLoadRemote, onImport, onEdit, onToggleConversations }: {
+function ProviderCard({ provider, currentUser, connecting, ping, remote, importingState, importMsg, onConnect, onDisconnect, onDelete, onToggle, onSetDefault, onStartPolling, onPing, onLoadRemote, onImport, onEdit, onToggleConversations }: {
   provider: Provider;
+  currentUser: { userId: string; role: string } | null;
   connecting: boolean;
   ping?: { loading: boolean; ok?: boolean; detail?: string };
   remote?: { loading: boolean; instances?: RemoteInstance[]; error?: string };
@@ -633,6 +641,7 @@ function ProviderCard({ provider, connecting, ping, remote, importingState, impo
   onEdit: () => void;
   onToggleConversations: (inst: Instance) => void;
 }) {
+  const isSuperAdmin = currentUser?.role === "superadmin";
   const typeInfo = PROVIDER_TYPES.find((t) => t.value === provider.type);
   const activeInstances = provider.instances.filter((i) => i.status !== "deleted");
   const connectedCount = provider.instances.filter((i) => i.status === "connected").length;
@@ -871,6 +880,7 @@ function ProviderCard({ provider, connecting, ping, remote, importingState, impo
             <InstanceRow
               key={inst.id}
               instance={{ ...inst, providerId: provider.id }}
+              showOwner={isSuperAdmin}
               onDisconnect={() => onDisconnect(inst)}
               onStartPolling={() => onStartPolling(inst.id)}
               onToggleConversations={() => onToggleConversations(inst)}
@@ -882,8 +892,9 @@ function ProviderCard({ provider, connecting, ping, remote, importingState, impo
   );
 }
 
-function InstanceRow({ instance, onDisconnect, onStartPolling, onToggleConversations }: {
+function InstanceRow({ instance, showOwner, onDisconnect, onStartPolling, onToggleConversations }: {
   instance: Instance;
+  showOwner?: boolean;
   onDisconnect: () => void;
   onStartPolling: () => void;
   onToggleConversations: () => void;
@@ -936,6 +947,18 @@ function InstanceRow({ instance, onDisconnect, onStartPolling, onToggleConversat
             )}
             <span style={{ color: "var(--border)" }}>·</span>
             <span className="text-xs font-mono" style={{ color: "var(--text-muted)" }}>{instance.instanceName}</span>
+            {showOwner && instance.ownerName && (
+              <><span style={{ color: "var(--border)" }}>·</span>
+              <span className="text-xs px-1.5 py-0.5 rounded font-medium" style={{ backgroundColor: "var(--primary-light)", color: "var(--primary)" }}>
+                {instance.ownerName}
+              </span></>
+            )}
+            {showOwner && !instance.ownerName && (
+              <><span style={{ color: "var(--border)" }}>·</span>
+              <span className="text-xs px-1.5 py-0.5 rounded" style={{ backgroundColor: "var(--border)", color: "var(--text-muted)" }}>
+                sem dono
+              </span></>
+            )}
           </div>
         </div>
 

@@ -3,7 +3,6 @@ import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/auth";
 import { EvolutionApiProvider } from "@/lib/providers/evolution";
 
-// Fetch live instance list + status directly from Evolution API
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await getAuthUser();
   if (!user || !["superadmin", "admin"].includes(user.role)) {
@@ -11,13 +10,27 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   }
 
   const { id } = await params;
+  const isSuperAdmin = user.role === "superadmin";
+
   const provider = await prisma.apiProvider.findUnique({
     where: { id },
-    include: { instances: true },
+    include: {
+      instances: {
+        where: isSuperAdmin ? {} : { ownerId: user.userId },
+        include: { owner: { select: { id: true, name: true } } },
+      },
+    },
   });
   if (!provider) return NextResponse.json({ error: "Provedor não encontrado" }, { status: 404 });
+
+  const instancesWithOwner = provider.instances.map((i) => ({
+    ...i,
+    ownerName: i.owner?.name ?? null,
+    owner: undefined,
+  }));
+
   if (provider.type !== "evolution") {
-    return NextResponse.json({ instances: provider.instances });
+    return NextResponse.json({ instances: instancesWithOwner });
   }
 
   const evolution = new EvolutionApiProvider();
@@ -33,7 +46,6 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     const data = await res.json();
     const liveList: Record<string, unknown>[] = Array.isArray(data) ? data : [];
 
-    // Sync status back to DB
     const updates: Promise<unknown>[] = [];
     for (const live of liveList) {
       const inst = live.instance as Record<string, unknown> | undefined ?? live;
@@ -56,13 +68,12 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     }
     await Promise.all(updates);
 
-    // Return enriched instances
     const liveMap = new Map(liveList.map((l) => {
       const inst = l.instance as Record<string, unknown> | undefined ?? l;
       return [String(inst.instanceName || inst.name || ""), inst];
     }));
 
-    const enriched = provider.instances.map((dbInst) => {
+    const enriched = instancesWithOwner.map((dbInst) => {
       const live = liveMap.get(dbInst.instanceName);
       if (!live) return { ...dbInst, liveStatus: "not_found" };
       const rawState = String(live.state || live.status || live.connectionStatus || "");
@@ -75,9 +86,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 
     return NextResponse.json({ instances: enriched, liveCount: liveList.length });
   } catch (e) {
-    // Fall back to DB data
     return NextResponse.json({
-      instances: provider.instances,
+      instances: instancesWithOwner,
       error: e instanceof Error ? e.message : "Erro ao consultar Evolution API",
     });
   }

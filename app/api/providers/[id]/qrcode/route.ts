@@ -20,6 +20,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
   if (!instance) return NextResponse.json({ qrCode: null, status: "disconnected" });
 
+  // Ownership check
+  const isSuperAdmin = user.role === "superadmin";
+  if (!isSuperAdmin && instance.ownerId && instance.ownerId !== user.userId) {
+    return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
+  }
+
   // Check cached QR first
   if (instance.qrCode && instance.status === "connecting") {
     return NextResponse.json({ qrCode: instance.qrCode, status: instance.status });

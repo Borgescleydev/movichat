@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/auth";
 
-// POST - import all existing remote instances into local DB
 export async function POST(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await getAuthUser();
   if (!user || !["superadmin", "admin"].includes(user.role)) {
@@ -44,9 +43,7 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
           phone,
         };
       }).filter((i) => i.name);
-
     } else if (provider.type === "wppconnect") {
-      // WPPConnect: only has local instances in our DB
       return NextResponse.json({ error: "WPPConnect não suporta listagem remota de sessões" }, { status: 400 });
     } else {
       return NextResponse.json({ error: "Tipo de provedor não suportado para importação" }, { status: 400 });
@@ -61,13 +58,14 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
 
   for (const remote of remoteInstances) {
     if (existingNames.has(remote.name)) {
-      // Update status for existing instance
       const existing = provider.instances.find((i) => i.instanceName === remote.name);
       if (existing) {
         await prisma.whatsAppInstance.update({
           where: { id: existing.id },
           data: {
             status: remote.status,
+            // Claim ownership if unowned
+            ...(existing.ownerId ? {} : { ownerId: user.userId }),
             ...(remote.phone ? { phone: remote.phone } : {}),
             ...(remote.status === "connected" ? { qrCode: null } : {}),
           },
@@ -75,10 +73,10 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
         updated++;
       }
     } else {
-      // Create new instance record
       await prisma.whatsAppInstance.create({
         data: {
           providerId: id,
+          ownerId: user.userId,
           instanceName: remote.name,
           instanceId: remote.instanceId || remote.name,
           label: remote.name,

@@ -20,6 +20,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
   if (!instance) return NextResponse.json({ status: "disconnected" });
 
+  // Ownership check — only owner or superadmin (agents only check their own instances)
+  const isSuperAdmin = user.role === "superadmin";
+  if (!isSuperAdmin && instance.ownerId && instance.ownerId !== user.userId) {
+    return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
+  }
+
   const provider = getProvider(apiProvider.type);
   try {
     const status = await provider.getStatus(

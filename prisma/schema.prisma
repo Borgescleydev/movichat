@@ -17,7 +17,8 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  assignedContacts Contact[] @relation("AssignedAgent")
+  assignedContacts Contact[]          @relation("AssignedAgent")
+  ownedInstances   WhatsAppInstance[] @relation("InstanceOwner")
 }
 
 model PipelineColumn {
@@ -93,6 +94,7 @@ model ApiProvider {
 model WhatsAppInstance {
   id                   String   @id @default(cuid())
   providerId           String
+  ownerId              String?
   instanceName         String
   instanceId           String?
   status               String   @default("disconnected")
@@ -104,6 +106,7 @@ model WhatsAppInstance {
   updatedAt            DateTime @updatedAt
 
   provider      ApiProvider          @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  owner         User?                @relation("InstanceOwner", fields: [ownerId], references: [id])
   groups        WhatsAppGroup[]
   campaigns     Campaign[]
   manualLogs    ManualDispatchLog[]
