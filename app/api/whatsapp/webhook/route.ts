@@ -122,7 +122,7 @@ async function handleIncomingMessage(phone: string, name: string, message: strin
       where: { id: contact.id },
       data: {
         ...(name && name !== cleanPhone && contact.name === `+${cleanPhone}` ? { name } : {}),
-        ...(instanceId && !contact.instanceId ? { instanceId } : {}),
+        ...(instanceId ? { instanceId } : {}),
         updatedAt: new Date(),
       },
     });
