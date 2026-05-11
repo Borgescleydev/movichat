@@ -50,21 +50,31 @@ export default function ProvidersSettings() {
     return () => { Object.values(qrPolling).forEach(clearInterval); };
   }, [loadProviders]);
 
+  async function safeJson(res: Response): Promise<Record<string, unknown>> {
+    try { return await res.json(); } catch { return {}; }
+  }
+
   async function createProvider(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
-    const res = await fetch("/api/providers", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(form),
-    });
-    setSaving(false);
-    if (res.ok) {
-      setShowNew(false);
-      setForm({ name: "", type: "uazapi", baseUrl: "", apiKey: "", isDefault: false });
-      loadProviders();
-    } else {
-      alert((await res.json()).error);
+    try {
+      const res = await fetch("/api/providers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
+      const data = await safeJson(res);
+      if (res.ok) {
+        setShowNew(false);
+        setForm({ name: "", type: "uazapi", baseUrl: "", apiKey: "", isDefault: false });
+        loadProviders();
+      } else {
+        alert(String(data.error || `Erro ${res.status}: falha ao criar provedor`));
+      }
+    } catch (err) {
+      alert(`Erro de conexão: ${err instanceof Error ? err.message : err}`);
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -94,16 +104,24 @@ export default function ProvidersSettings() {
 
   async function connectInstance(provider: Provider) {
     setConnecting(provider.id);
-    const res = await fetch(`/api/providers/${provider.id}/connect`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ label: `${provider.name} · ${new Date().toLocaleTimeString("pt-BR")}` }),
-    });
-    setConnecting(null);
-    if (!res.ok) { alert((await res.json()).error); return; }
-    const instance = await res.json();
-    loadProviders();
-    startQrPolling(provider.id, instance.id);
+    try {
+      const res = await fetch(`/api/providers/${provider.id}/connect`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ label: `${provider.name} · ${new Date().toLocaleTimeString("pt-BR")}` }),
+      });
+      const data = await safeJson(res);
+      if (!res.ok) {
+        alert(String(data.error || `Erro ${res.status}: falha ao conectar`));
+        return;
+      }
+      loadProviders();
+      if (data.id) startQrPolling(provider.id, data.id as string);
+    } catch (err) {
+      alert(`Erro de conexão: ${err instanceof Error ? err.message : err}`);
+    } finally {
+      setConnecting(null);
+    }
   }
 
   function startQrPolling(providerId: string, instanceId: string) {

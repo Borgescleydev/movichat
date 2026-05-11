@@ -42,4 +42,10 @@ next-env.d.ts
 
 /app/generated/prisma
 
+# SQLite database
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
 .vercel
