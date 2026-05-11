@@ -1,15 +1,35 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { comparePassword, signToken } from "@/lib/auth";
-import { seedDatabase } from "@/lib/seed";
+import { comparePassword, signToken, hashPassword } from "@/lib/auth";
 
 export async function POST(req: NextRequest) {
   try {
-    await seedDatabase();
     const { username, password } = await req.json();
 
     if (!username || !password) {
       return NextResponse.json({ error: "Usuário e senha obrigatórios" }, { status: 400 });
+    }
+
+    // Bootstrap: create superadmin if DB is empty (first deploy)
+    const userCount = await prisma.user.count();
+    if (userCount === 0) {
+      const hashed = await hashPassword("borges123");
+      await prisma.user.create({
+        data: { name: "Borgescley", username: "borgescley", password: hashed, role: "superadmin" },
+      });
+      await prisma.pipelineColumn.create({
+        data: { name: "Novos Contatos", order: 0, isDefault: true, color: "#22c55e" },
+      });
+      await prisma.whatsAppSession.upsert({
+        where: { id: "default" },
+        create: { id: "default", status: "disconnected" },
+        update: {},
+      });
+      await prisma.systemSettings.upsert({
+        where: { id: "default" },
+        create: { id: "default", themeJson: "{}" },
+        update: {},
+      });
     }
 
     const user = await prisma.user.findUnique({ where: { username } });

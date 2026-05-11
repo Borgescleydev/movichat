@@ -2,10 +2,8 @@ import { getAuthUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
 import AppLayout from "@/components/layout/AppLayout";
-import { seedDatabase } from "@/lib/seed";
 
 export default async function DashboardPage() {
-  await seedDatabase();
   const user = await getAuthUser();
   if (!user) redirect("/login");
 
