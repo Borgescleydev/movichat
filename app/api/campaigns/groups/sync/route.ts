@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/auth";
-import { EvolutionApiProvider } from "@/lib/providers/evolution";
 
 export async function POST(req: NextRequest) {
   const user = await getAuthUser();
@@ -17,13 +16,17 @@ export async function POST(req: NextRequest) {
     include: { provider: true },
   });
   if (!instance) return NextResponse.json({ error: "Instância não encontrada" }, { status: 404 });
-  if (instance.provider.type !== "evolution") {
-    return NextResponse.json({ error: "Apenas Evolution API suporta sincronização de grupos" }, { status: 400 });
+  if (!["evolution", "wppconnect"].includes(instance.provider.type)) {
+    return NextResponse.json({ error: "Este provedor não suporta sincronização de grupos" }, { status: 400 });
   }
 
   try {
-    const evolution = new EvolutionApiProvider();
-    const freshGroups = await evolution.fetchGroups(
+    const { getProvider } = await import("@/lib/providers");
+    const providerImpl = getProvider(instance.provider.type);
+    if (!providerImpl.fetchGroups) {
+      return NextResponse.json({ error: "Este provedor não suporta listagem de grupos" }, { status: 400 });
+    }
+    const freshGroups = await providerImpl.fetchGroups(
       { baseUrl: instance.provider.baseUrl, apiKey: instance.provider.apiKey },
       instance.instanceName
     );
@@ -68,7 +71,13 @@ export async function POST(req: NextRequest) {
       orderBy: { name: "asc" },
     });
 
-    return NextResponse.json({ synced: freshGroups.length, groups });
+    return NextResponse.json({
+      synced: freshGroups.length,
+      groups,
+      message: freshGroups.length === 0
+        ? "A instância está conectada mas não possui grupos do WhatsApp. Certifique-se de que o número conectado participa de grupos."
+        : undefined,
+    });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Erro desconhecido";
     return NextResponse.json({ error: `Falha ao sincronizar: ${msg}` }, { status: 500 });

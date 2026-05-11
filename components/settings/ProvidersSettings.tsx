@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import ProviderTutorial from "./ProviderTutorial";
 
 const PROVIDER_TYPES = [
   { value: "uazapi", label: "UazAPI", url_hint: "https://free.uazapi.dev", initials: "UA" },
   { value: "evolution", label: "Evolution API", url_hint: "https://sua-evolution.exemplo.com", initials: "EV" },
+  { value: "wppconnect", label: "WPPConnect", url_hint: "http://localhost:21465", initials: "WP" },
 ];
 
 interface Provider {
@@ -26,6 +28,8 @@ interface Instance {
   phone?: string;
   qrCode?: string;
   createdAt: string;
+  conversationsEnabled: boolean;
+  providerId?: string;
 }
 
 interface RemoteInstance { name: string; status: string; phone?: string; }
@@ -42,9 +46,12 @@ export default function ProvidersSettings() {
   const [qrPolling, setQrPolling] = useState<Record<string, ReturnType<typeof setInterval>>>({});
   const [pingState, setPingState] = useState<Record<string, { loading: boolean; ok?: boolean; detail?: string }>>({});
   const [remoteInstances, setRemoteInstances] = useState<Record<string, { loading: boolean; instances?: RemoteInstance[]; error?: string }>>({});
+  const [importing, setImporting] = useState<Record<string, boolean>>({});
+  const [importMsg, setImportMsg] = useState<Record<string, string>>({});
   const [editProvider, setEditProvider] = useState<Provider | null>(null);
   const [editForm, setEditForm] = useState({ name: "", baseUrl: "", apiKey: "", type: "" });
   const [editSaving, setEditSaving] = useState(false);
+  const [showTutorial, setShowTutorial] = useState(false);
 
   const loadProviders = useCallback(async () => {
     const res = await fetch("/api/providers");
@@ -56,6 +63,35 @@ export default function ProvidersSettings() {
     loadProviders();
     return () => { Object.values(qrPolling).forEach(clearInterval); };
   }, [loadProviders]);
+
+  // Auto-refresh live status for evolution providers when they load
+  useEffect(() => {
+    if (providers.length === 0) return;
+    for (const p of providers) {
+      if (p.type === "evolution" && p.instances.length > 0) {
+        // Refresh each instance status silently
+        for (const inst of p.instances) {
+          fetch(`/api/providers/${p.id}/status?instanceId=${inst.id}`)
+            .then((r) => r.ok ? r.json() : null)
+            .then((d) => {
+              if (d?.status && d.status !== inst.status) {
+                setProviders((prev) =>
+                  prev.map((pr) =>
+                    pr.id !== p.id ? pr : {
+                      ...pr,
+                      instances: pr.instances.map((i) =>
+                        i.id !== inst.id ? i : { ...i, status: d.status, phone: d.phone || i.phone }
+                      ),
+                    }
+                  )
+                );
+              }
+            })
+            .catch(() => {});
+        }
+      }
+    }
+  }, [providers.length]); // eslint-disable-line
 
   async function safeJson(res: Response): Promise<Record<string, unknown>> {
     try { return await res.json(); } catch { return {}; }
@@ -198,6 +234,28 @@ export default function ProvidersSettings() {
     }
   }
 
+  async function importInstances(id: string) {
+    setImporting((prev) => ({ ...prev, [id]: true }));
+    setImportMsg((prev) => ({ ...prev, [id]: "" }));
+    try {
+      const res = await fetch(`/api/providers/${id}/import-instances`, { method: "POST" });
+      const data = await safeJson(res);
+      if (res.ok) {
+        const msg = data.imported
+          ? `${data.imported} nova${Number(data.imported) !== 1 ? "s" : ""} instância${Number(data.imported) !== 1 ? "s" : ""} importada${Number(data.imported) !== 1 ? "s" : ""}, ${data.updated} atualizada${Number(data.updated) !== 1 ? "s" : ""}`
+          : `${data.updated} instância${Number(data.updated) !== 1 ? "s" : ""} atualizada${Number(data.updated) !== 1 ? "s" : ""} (nenhuma nova)`;
+        setImportMsg((prev) => ({ ...prev, [id]: msg }));
+        loadProviders();
+      } else {
+        setImportMsg((prev) => ({ ...prev, [id]: String(data.error || "Erro ao importar") }));
+      }
+    } catch (e) {
+      setImportMsg((prev) => ({ ...prev, [id]: `Erro: ${e instanceof Error ? e.message : e}` }));
+    } finally {
+      setImporting((prev) => ({ ...prev, [id]: false }));
+    }
+  }
+
   async function loadRemoteInstances(id: string) {
     setRemoteInstances((prev) => ({ ...prev, [id]: { loading: true } }));
     try {
@@ -244,22 +302,37 @@ export default function ProvidersSettings() {
             Provedores de API WhatsApp
           </h2>
           <p className="text-sm mt-0.5" style={{ color: "var(--text-secondary)" }}>
-            Conecte UazAPI, Evolution API ou qualquer provedor compatível
+            Conecte UazAPI, Evolution API, WPPConnect ou qualquer provedor compatível
           </p>
         </div>
-        <button
-          onClick={() => setShowNew(true)}
-          className="flex items-center gap-2 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-          style={{ backgroundColor: "var(--primary)" }}
-          onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "var(--primary-hover)")}
-          onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "var(--primary)")}
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-          </svg>
-          Novo Provedor
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowTutorial(true)}
+            className="flex items-center gap-2 text-sm font-medium px-3 py-2 rounded-lg border transition-colors"
+            style={{ borderColor: "var(--border)", color: "var(--text-secondary)", backgroundColor: "var(--card-bg)" }}
+            title="Ver guia de configuração"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            Como configurar
+          </button>
+          <button
+            onClick={() => setShowNew(true)}
+            className="flex items-center gap-2 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+            style={{ backgroundColor: "var(--primary)" }}
+            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "var(--primary-hover)")}
+            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "var(--primary)")}
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+            Novo Provedor
+          </button>
+        </div>
       </div>
+
+      {showTutorial && <ProviderTutorial onClose={() => setShowTutorial(false)} />}
 
       {/* Webhook info */}
       <div className="rounded-xl p-4" style={{ backgroundColor: "var(--info-light)", border: "1px solid color-mix(in srgb, var(--info) 30%, transparent)" }}>
@@ -360,7 +433,7 @@ export default function ProvidersSettings() {
               {/* Token */}
               <div>
                 <label className="block text-sm font-medium mb-1" style={{ color: "var(--text-primary)" }}>
-                  {form.type === "uazapi" ? "Token" : "API Key"}
+                  {form.type === "uazapi" ? "Token" : form.type === "wppconnect" ? "Secret Key" : "API Key"}
                 </label>
                 <input
                   type="password"
@@ -460,8 +533,10 @@ export default function ProvidersSettings() {
                   className={INPUT_CLS} style={{ borderColor: "var(--border)", color: "var(--text-primary)" }} />
                 <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
                   {editForm.type === "uazapi"
-                    ? "Para UazAPI: é o GLOBAL_API_TOKEN configurado no servidor. Encontre nas variáveis de ambiente do servidor ou painel de admin."
-                    : "Para Evolution API: é a AUTHENTICATION_API_KEY do servidor."}
+                    ? "Para UazAPI: é o GLOBAL_API_TOKEN configurado no servidor."
+                    : editForm.type === "evolution"
+                    ? "Para Evolution API: é a AUTHENTICATION_API_KEY do servidor."
+                    : "Para WPPConnect: é o SECRETKEY configurado no servidor (padrão: THISISMYSECRET)."}
                 </p>
               </div>
               <div className="flex gap-3 pt-2">
@@ -504,6 +579,8 @@ export default function ProvidersSettings() {
               connecting={connecting === provider.id}
               ping={pingState[provider.id]}
               remote={remoteInstances[provider.id]}
+              importingState={importing[provider.id]}
+              importMsg={importMsg[provider.id]}
               onConnect={() => connectInstance(provider)}
               onDisconnect={(inst) => disconnectInstance(provider, inst)}
               onDelete={() => deleteProvider(provider.id)}
@@ -512,7 +589,23 @@ export default function ProvidersSettings() {
               onStartPolling={(id) => startQrPolling(provider.id, id)}
               onPing={() => pingProvider(provider.id)}
               onLoadRemote={() => loadRemoteInstances(provider.id)}
+              onImport={() => importInstances(provider.id)}
               onEdit={() => openEdit(provider)}
+              onToggleConversations={(inst) => {
+                const updated = { ...inst, conversationsEnabled: !inst.conversationsEnabled };
+                fetch(`/api/providers/${provider.id}/instances/${inst.id}`, {
+                  method: "PATCH",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ conversationsEnabled: updated.conversationsEnabled }),
+                }).then(() => {
+                  setProviders((prev) => prev.map((p) =>
+                    p.id !== provider.id ? p : {
+                      ...p,
+                      instances: p.instances.map((i) => i.id === inst.id ? updated : i),
+                    }
+                  ));
+                });
+              }}
             />
           ))}
         </div>
@@ -521,11 +614,13 @@ export default function ProvidersSettings() {
   );
 }
 
-function ProviderCard({ provider, connecting, ping, remote, onConnect, onDisconnect, onDelete, onToggle, onSetDefault, onStartPolling, onPing, onLoadRemote, onEdit }: {
+function ProviderCard({ provider, connecting, ping, remote, importingState, importMsg, onConnect, onDisconnect, onDelete, onToggle, onSetDefault, onStartPolling, onPing, onLoadRemote, onImport, onEdit, onToggleConversations }: {
   provider: Provider;
   connecting: boolean;
   ping?: { loading: boolean; ok?: boolean; detail?: string };
   remote?: { loading: boolean; instances?: RemoteInstance[]; error?: string };
+  importingState?: boolean;
+  importMsg?: string;
   onConnect: () => void;
   onDisconnect: (inst: Instance) => void;
   onDelete: () => void;
@@ -534,7 +629,9 @@ function ProviderCard({ provider, connecting, ping, remote, onConnect, onDisconn
   onStartPolling: (instanceId: string) => void;
   onPing: () => void;
   onLoadRemote: () => void;
+  onImport: () => void;
   onEdit: () => void;
+  onToggleConversations: (inst: Instance) => void;
 }) {
   const typeInfo = PROVIDER_TYPES.find((t) => t.value === provider.type);
   const activeInstances = provider.instances.filter((i) => i.status !== "deleted");
@@ -620,6 +717,21 @@ function ProviderCard({ provider, connecting, ping, remote, onConnect, onDisconn
         </div>
       </div>
 
+      {/* Resultado do import */}
+      {importMsg && (
+        <div
+          className="px-5 py-2.5 flex items-center gap-2 text-xs"
+          style={{
+            borderTop: "1px solid var(--border)",
+            backgroundColor: "color-mix(in srgb, var(--primary) 6%, transparent)",
+            color: "var(--primary)",
+          }}
+        >
+          <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+          {importMsg}
+        </div>
+      )}
+
       {/* Resultado do ping */}
       {ping && !ping.loading && ping.detail && (
         <div
@@ -664,6 +776,23 @@ function ProviderCard({ provider, connecting, ping, remote, onConnect, onDisconn
           }
           {ping?.loading ? "Testando..." : "Testar Conexão"}
         </button>
+
+        {/* Importar instâncias existentes */}
+        {provider.type === "evolution" && (
+          <button
+            onClick={onImport}
+            disabled={importingState}
+            className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors disabled:opacity-40"
+            style={{ borderColor: "var(--primary)", color: "var(--primary)", backgroundColor: "var(--primary-light)" }}
+            title="Importar instâncias existentes da Evolution API"
+          >
+            {importingState
+              ? <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
+              : <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+            }
+            {importingState ? "Importando..." : "Importar Instâncias"}
+          </button>
+        )}
 
         {/* Listar instâncias remotas */}
         <button
@@ -741,9 +870,10 @@ function ProviderCard({ provider, connecting, ping, remote, onConnect, onDisconn
           {activeInstances.map((inst) => (
             <InstanceRow
               key={inst.id}
-              instance={inst}
+              instance={{ ...inst, providerId: provider.id }}
               onDisconnect={() => onDisconnect(inst)}
               onStartPolling={() => onStartPolling(inst.id)}
+              onToggleConversations={() => onToggleConversations(inst)}
             />
           ))}
         </div>
@@ -752,10 +882,11 @@ function ProviderCard({ provider, connecting, ping, remote, onConnect, onDisconn
   );
 }
 
-function InstanceRow({ instance, onDisconnect, onStartPolling }: {
+function InstanceRow({ instance, onDisconnect, onStartPolling, onToggleConversations }: {
   instance: Instance;
   onDisconnect: () => void;
   onStartPolling: () => void;
+  onToggleConversations: () => void;
 }) {
   const [showQr, setShowQr] = useState(false);
 
@@ -810,6 +941,21 @@ function InstanceRow({ instance, onDisconnect, onStartPolling }: {
 
         {/* Actions */}
         <div className="flex items-center gap-2 flex-shrink-0">
+          {/* Conversations toggle */}
+          <button
+            onClick={onToggleConversations}
+            title={instance.conversationsEnabled ? "Desabilitar conversas" : "Habilitar conversas"}
+            className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border transition-colors"
+            style={instance.conversationsEnabled
+              ? { borderColor: "var(--primary)", color: "var(--primary)", backgroundColor: "var(--primary-light)" }
+              : { borderColor: "var(--border)", color: "var(--text-muted)", backgroundColor: "transparent" }}
+          >
+            <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/>
+            </svg>
+            {instance.conversationsEnabled ? "Conversas ativa" : "Conversas off"}
+          </button>
+
           {instance.status === "connecting" && qrSrc && (
             <button
               onClick={() => setShowQr(!showQr)}

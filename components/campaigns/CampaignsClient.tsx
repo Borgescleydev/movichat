@@ -4,10 +4,21 @@ import { useState } from "react";
 import GroupsTab from "./GroupsTab";
 import TemplatesTab from "./TemplatesTab";
 import CampaignsTab from "./CampaignsTab";
+import ManualDispatch from "./ManualDispatch";
 
-type Tab = "campanhas" | "templates" | "grupos";
+type Tab = "disparo" | "campanhas" | "templates" | "grupos";
 
-const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
+const TABS: { id: Tab; label: string; icon: React.ReactNode; highlight?: boolean }[] = [
+  {
+    id: "disparo",
+    label: "Disparo Manual",
+    highlight: true,
+    icon: (
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+      </svg>
+    ),
+  },
   {
     id: "campanhas",
     label: "Campanhas",
@@ -38,7 +49,7 @@ const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
 ];
 
 export default function CampaignsClient() {
-  const [tab, setTab] = useState<Tab>("campanhas");
+  const [tab, setTab] = useState<Tab>("disparo");
 
   return (
     <div className="flex flex-col h-full" style={{ backgroundColor: "var(--page-bg)" }}>
@@ -46,7 +57,7 @@ export default function CampaignsClient() {
       <div className="px-8 pt-8 pb-0" style={{ borderBottom: "1px solid var(--border)" }}>
         <h1 className="text-2xl font-bold mb-1" style={{ color: "var(--text-primary)" }}>Campanhas</h1>
         <p className="text-sm mb-5" style={{ color: "var(--text-secondary)" }}>
-          Disparos em massa para grupos do WhatsApp com agendamento e cadência
+          Disparos em massa para grupos do WhatsApp — manual ou agendado
         </p>
         {/* Tabs */}
         <div className="flex gap-1">
@@ -57,8 +68,17 @@ export default function CampaignsClient() {
               className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-t-lg transition-colors"
               style={
                 tab === t.id
-                  ? { backgroundColor: "var(--card-bg)", color: "var(--primary)", borderTop: "2px solid var(--primary)", borderLeft: "1px solid var(--border)", borderRight: "1px solid var(--border)" }
-                  : { color: "var(--text-secondary)" }
+                  ? {
+                      backgroundColor: "var(--card-bg)",
+                      color: t.highlight ? "var(--primary)" : "var(--primary)",
+                      borderTop: `2px solid var(--primary)`,
+                      borderLeft: "1px solid var(--border)",
+                      borderRight: "1px solid var(--border)",
+                    }
+                  : {
+                      color: t.highlight ? "var(--primary)" : "var(--text-secondary)",
+                      fontWeight: t.highlight ? 600 : undefined,
+                    }
               }
             >
               {t.icon}
@@ -70,6 +90,7 @@ export default function CampaignsClient() {
 
       {/* Tab content */}
       <div className="flex-1 overflow-auto p-8">
+        {tab === "disparo" && <ManualDispatch />}
         {tab === "campanhas" && <CampaignsTab />}
         {tab === "templates" && <TemplatesTab />}
         {tab === "grupos" && <GroupsTab />}

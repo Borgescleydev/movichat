@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { EvolutionApiProvider } from "@/lib/providers/evolution";
-import { addDays, addWeeks, addMonths } from "date-fns";
+import { addDays, addWeeks, addMonths, addHours } from "date-fns";
 
-// Resolve template body with variable values and group name
 function resolveTemplate(body: string, variableValues: Record<string, string>, groupName: string): string {
   return body.replace(/\{\{(\w+)\}\}/g, (_, varName) => {
     if (varName === "group_name") return groupName;
@@ -13,13 +12,25 @@ function resolveTemplate(body: string, variableValues: Record<string, string>, g
   });
 }
 
-function calculateNextRunAt(startAt: Date, repeatType: string, runCount: number): Date | null {
-  const base = startAt;
+function calculateNextRunAt(
+  startAt: Date,
+  repeatType: string,
+  runCount: number,
+  repeatEveryX?: number | null,
+  repeatEveryUnit?: string | null
+): Date | null {
+  const multiplier = runCount + 1;
   switch (repeatType) {
-    case "daily":   return addDays(base, runCount + 1);
-    case "weekly":  return addWeeks(base, runCount + 1);
-    case "monthly": return addMonths(base, runCount + 1);
-    default:        return null;
+    case "daily":   return addDays(startAt, multiplier);
+    case "weekly":  return addWeeks(startAt, multiplier);
+    case "monthly": return addMonths(startAt, multiplier);
+    case "custom": {
+      const x = repeatEveryX || 1;
+      const unit = repeatEveryUnit || "days";
+      if (unit === "hours") return addHours(startAt, x * multiplier);
+      return addDays(startAt, x * multiplier);
+    }
+    default: return null;
   }
 }
 
@@ -27,13 +38,27 @@ function randomBetween(min: number, max: number): number {
   return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
+/** Check if current time is within the campaign's allowed time window */
+function isWithinWindow(now: Date, windowStart: string | null, windowEnd: string | null, windowDays: string): boolean {
+  if (!windowStart || !windowEnd) return true;
+
+  const days: number[] = JSON.parse(windowDays || "[]");
+  if (days.length > 0 && !days.includes(now.getDay())) return false;
+
+  const [startH, startM] = windowStart.split(":").map(Number);
+  const [endH, endM] = windowEnd.split(":").map(Number);
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  const windowStartMin = startH * 60 + startM;
+  const windowEndMin = endH * 60 + endM;
+
+  return currentMinutes >= windowStartMin && currentMinutes <= windowEndMin;
+}
+
 export async function GET(req: NextRequest) {
-  // Verify cron secret
   const cronSecret = process.env.CRON_SECRET;
   if (cronSecret) {
     const auth = req.headers.get("authorization");
     if (auth !== `Bearer ${cronSecret}`) {
-      // Also allow Vercel's internal cron (no auth header in some setups)
       const isVercelCron = req.headers.get("x-vercel-cron") === "1";
       if (!isVercelCron) {
         return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -44,14 +69,13 @@ export async function GET(req: NextRequest) {
   const now = new Date();
   let processed = 0;
   let errors = 0;
+  let skipped = 0;
 
   try {
-    // Fetch due dispatches — optimistic locking: claim them by setting status=processing
     const duePending = await prisma.campaignDispatch.findMany({
       where: {
         OR: [
           { status: "pending" },
-          // Retry stuck "processing" dispatches older than 5 min
           { status: "processing", updatedAt: { lt: new Date(now.getTime() - 5 * 60 * 1000) } },
         ],
         scheduledFor: { lte: now },
@@ -70,9 +94,8 @@ export async function GET(req: NextRequest) {
       take: 15,
     });
 
-    if (duePending.length === 0) return NextResponse.json({ processed: 0, errors: 0 });
+    if (duePending.length === 0) return NextResponse.json({ processed: 0, errors: 0, skipped: 0 });
 
-    // Mark campaigns as running (first dispatch per campaign)
     const campaignIds = [...new Set(duePending.map((d) => d.campaignId))];
     await prisma.campaign.updateMany({
       where: { id: { in: campaignIds }, status: "scheduled" },
@@ -87,15 +110,23 @@ export async function GET(req: NextRequest) {
       const template = campaign.template;
       const provider = instance.provider;
 
+      // Check time window for windowed campaigns
+      if (campaign.sendType === "windowed") {
+        const inWindow = isWithinWindow(now, campaign.windowStart, campaign.windowEnd, campaign.windowDays);
+        if (!inWindow) {
+          skipped++;
+          continue; // Leave as pending — will be retried next cron run inside the window
+        }
+      }
+
       // Claim dispatch atomically
       const claimed = await prisma.campaignDispatch.updateMany({
         where: { id: dispatch.id, status: { in: ["pending", "processing"] } },
         data: { status: "processing" },
       });
-      if (claimed.count === 0) continue; // Already claimed by another invocation
+      if (claimed.count === 0) continue;
 
       try {
-        // Check instance connectivity
         if (instance.status !== "connected") {
           await prisma.campaignDispatch.update({
             where: { id: dispatch.id },
@@ -111,7 +142,6 @@ export async function GET(req: NextRequest) {
         let result = { messageId: "", status: "sent" };
 
         if (template.mediaType && template.mediaUrl) {
-          // Send media with caption (caption contains the resolved text)
           result = await evolution.sendGroupMedia(
             config,
             instance.instanceName,
@@ -120,7 +150,6 @@ export async function GET(req: NextRequest) {
             template.mediaUrl,
             template.mediaCaption ? resolveTemplate(template.mediaCaption, variableValues, dispatch.group.name) : resolvedText
           );
-          // If there's both text body and media, send text separately
           if (resolvedText && template.mediaCaption !== null) {
             await evolution.sendGroupMessage(config, instance.instanceName, dispatch.group.groupJid, resolvedText);
           }
@@ -157,26 +186,30 @@ export async function GET(req: NextRequest) {
       });
 
       if (remaining === 0) {
-        if (campaign.repeatType === "none") {
+        const hasRecurrence = campaign.repeatType !== "none";
+
+        if (!hasRecurrence) {
+          // Check if there were too many errors — mark as "error" if all dispatches failed
+          const totalDispatches = await prisma.campaignDispatch.count({ where: { campaignId, runIndex: campaign.runCount } });
+          const failedDispatches = await prisma.campaignDispatch.count({ where: { campaignId, runIndex: campaign.runCount, status: "failed" } });
+          const finalStatus = totalDispatches > 0 && failedDispatches === totalDispatches ? "error" : "completed";
+
           await prisma.campaign.update({
             where: { id: campaignId },
-            data: { status: "completed" },
+            data: { status: finalStatus },
           });
         } else {
-          const nextRunAt = calculateNextRunAt(campaign.startAt, campaign.repeatType, campaign.runCount);
+          const nextRunAt = calculateNextRunAt(
+            campaign.startAt, campaign.repeatType, campaign.runCount,
+            campaign.repeatEveryX, campaign.repeatEveryUnit
+          );
           const expired = campaign.repeatEndAt && nextRunAt && nextRunAt > campaign.repeatEndAt;
 
           if (!nextRunAt || expired) {
-            await prisma.campaign.update({
-              where: { id: campaignId },
-              data: { status: "completed" },
-            });
+            await prisma.campaign.update({ where: { id: campaignId }, data: { status: "completed" } });
           } else {
-            // Create dispatches for the next run
             const newRunIndex = campaign.runCount + 1;
-            const existingNextRun = await prisma.campaignDispatch.count({
-              where: { campaignId, runIndex: newRunIndex },
-            });
+            const existingNextRun = await prisma.campaignDispatch.count({ where: { campaignId, runIndex: newRunIndex } });
 
             if (existingNextRun === 0) {
               const groups = await prisma.campaignGroup.findMany({
@@ -186,29 +219,34 @@ export async function GET(req: NextRequest) {
               });
 
               const nextStart = nextRunAt.getTime();
-              const hourBuckets: Record<number, number> = {};
-              let cursor = nextStart;
               const newDispatches: { campaignId: string; groupId: string; runIndex: number; scheduledFor: Date }[] = [];
 
-              for (let i = 0; i < groups.length; i++) {
-                if (i > 0) {
-                  const delaySec = randomBetween(campaign.cadenceMinSeconds, campaign.cadenceMaxSeconds);
-                  cursor += delaySec * 1000;
-                  const hourKey = Math.floor(cursor / 3_600_000);
-                  hourBuckets[hourKey] = (hourBuckets[hourKey] || 0) + 1;
-                  if (hourBuckets[hourKey] > campaign.cadenceMaxPerHour) {
-                    cursor = (hourKey + 1) * 3_600_000;
-                    hourBuckets[hourKey + 1] = 1;
+              if (campaign.sendType === "batch" && campaign.batchSize && campaign.batchIntervalMinutes) {
+                let batchStart = nextStart;
+                for (let i = 0; i < groups.length; i++) {
+                  if (i > 0 && i % campaign.batchSize === 0) {
+                    batchStart += campaign.batchIntervalMinutes * 60 * 1000;
                   }
-                } else {
-                  hourBuckets[Math.floor(cursor / 3_600_000)] = 1;
+                  newDispatches.push({ campaignId, groupId: groups[i].groupId, runIndex: newRunIndex, scheduledFor: new Date(batchStart) });
                 }
-                newDispatches.push({
-                  campaignId,
-                  groupId: groups[i].groupId,
-                  runIndex: newRunIndex,
-                  scheduledFor: new Date(cursor),
-                });
+              } else {
+                const hourBuckets: Record<number, number> = {};
+                let cursor = nextStart;
+                for (let i = 0; i < groups.length; i++) {
+                  if (i > 0) {
+                    const delaySec = randomBetween(campaign.cadenceMinSeconds, campaign.cadenceMaxSeconds);
+                    cursor += delaySec * 1000;
+                    const hourKey = Math.floor(cursor / 3_600_000);
+                    hourBuckets[hourKey] = (hourBuckets[hourKey] || 0) + 1;
+                    if (hourBuckets[hourKey] > campaign.cadenceMaxPerHour) {
+                      cursor = (hourKey + 1) * 3_600_000;
+                      hourBuckets[hourKey + 1] = 1;
+                    }
+                  } else {
+                    hourBuckets[Math.floor(cursor / 3_600_000)] = 1;
+                  }
+                  newDispatches.push({ campaignId, groupId: groups[i].groupId, runIndex: newRunIndex, scheduledFor: new Date(cursor) });
+                }
               }
 
               await prisma.campaignDispatch.createMany({ data: newDispatches });
@@ -227,5 +265,5 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Cron error", message: e instanceof Error ? e.message : "unknown" }, { status: 500 });
   }
 
-  return NextResponse.json({ processed, errors, timestamp: now.toISOString() });
+  return NextResponse.json({ processed, errors, skipped, timestamp: now.toISOString() });
 }

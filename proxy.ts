@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyToken } from "@/lib/auth";
 
-const PUBLIC_PATHS = ["/login", "/api/auth/login", "/api/whatsapp/webhook"];
+const PUBLIC_PATHS = ["/login", "/api/auth/login", "/api/whatsapp/webhook", "/api/cron/", "/api/migrate"];
 
 export function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;

@@ -6,6 +6,61 @@ function randomBetween(min: number, max: number): number {
   return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
+/** Build dispatch timestamps using cadence logic (random delay + hourly cap) */
+function buildCadenceDispatches(
+  groupIds: string[],
+  campaignId: string,
+  runIndex: number,
+  startMs: number,
+  cadenceMin: number,
+  cadenceMax: number,
+  cadenceMaxPerHour: number
+) {
+  const hourBuckets: Record<number, number> = {};
+  let cursor = startMs;
+  const dispatches: { campaignId: string; groupId: string; runIndex: number; scheduledFor: Date }[] = [];
+
+  for (let i = 0; i < groupIds.length; i++) {
+    if (i > 0) {
+      const delaySec = randomBetween(cadenceMin, cadenceMax);
+      cursor += delaySec * 1000;
+      const hourKey = Math.floor(cursor / 3_600_000);
+      hourBuckets[hourKey] = (hourBuckets[hourKey] || 0) + 1;
+      if (hourBuckets[hourKey] > cadenceMaxPerHour) {
+        cursor = (hourKey + 1) * 3_600_000;
+        hourBuckets[hourKey + 1] = 1;
+      }
+    } else {
+      hourBuckets[Math.floor(cursor / 3_600_000)] = 1;
+    }
+    dispatches.push({ campaignId, groupId: groupIds[i], runIndex, scheduledFor: new Date(cursor) });
+  }
+
+  return dispatches;
+}
+
+/** Build dispatch timestamps using batch logic (N messages every X minutes) */
+function buildBatchDispatches(
+  groupIds: string[],
+  campaignId: string,
+  runIndex: number,
+  startMs: number,
+  batchSize: number,
+  batchIntervalMs: number
+) {
+  const dispatches: { campaignId: string; groupId: string; runIndex: number; scheduledFor: Date }[] = [];
+  let batchStart = startMs;
+
+  for (let i = 0; i < groupIds.length; i++) {
+    if (i > 0 && i % batchSize === 0) {
+      batchStart += batchIntervalMs;
+    }
+    dispatches.push({ campaignId, groupId: groupIds[i], runIndex, scheduledFor: new Date(batchStart) });
+  }
+
+  return dispatches;
+}
+
 export async function POST(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await getAuthUser();
   if (!user || !["superadmin", "admin"].includes(user.role)) {
@@ -33,51 +88,45 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ error: "A instância WhatsApp não está conectada" }, { status: 400 });
   }
 
-  // Calculate dispatch schedule with cadence
   const runIndex = campaign.runCount;
-  const startTime = campaign.startAt.getTime();
-  const hourBuckets: Record<number, number> = {};
-  let cursor = startTime;
-  const dispatches: { campaignId: string; groupId: string; runIndex: number; scheduledFor: Date }[] = [];
+  const groupIds = campaign.groups.map((g) => g.groupId);
 
-  for (let i = 0; i < campaign.groups.length; i++) {
-    if (i > 0) {
-      const delaySec = randomBetween(campaign.cadenceMinSeconds, campaign.cadenceMaxSeconds);
-      cursor += delaySec * 1000;
+  // For immediate sendType, use now; otherwise use configured startAt
+  const startMs = campaign.sendType === "immediate"
+    ? Date.now()
+    : campaign.startAt.getTime();
 
-      // Enforce max per hour
-      const hourKey = Math.floor(cursor / 3_600_000);
-      hourBuckets[hourKey] = (hourBuckets[hourKey] || 0) + 1;
-      if (hourBuckets[hourKey] > campaign.cadenceMaxPerHour) {
-        // Push cursor to next hour boundary
-        cursor = (hourKey + 1) * 3_600_000;
-        hourBuckets[hourKey + 1] = 1;
-      }
-    } else {
-      const hourKey = Math.floor(cursor / 3_600_000);
-      hourBuckets[hourKey] = 1;
-    }
+  let dispatches: { campaignId: string; groupId: string; runIndex: number; scheduledFor: Date }[];
 
-    dispatches.push({
-      campaignId: id,
-      groupId: campaign.groups[i].groupId,
-      runIndex,
-      scheduledFor: new Date(cursor),
-    });
+  if (campaign.sendType === "batch" && campaign.batchSize && campaign.batchIntervalMinutes) {
+    dispatches = buildBatchDispatches(
+      groupIds, id, runIndex, startMs,
+      campaign.batchSize,
+      campaign.batchIntervalMinutes * 60 * 1000
+    );
+  } else {
+    dispatches = buildCadenceDispatches(
+      groupIds, id, runIndex, startMs,
+      campaign.cadenceMinSeconds,
+      campaign.cadenceMaxSeconds,
+      campaign.cadenceMaxPerHour
+    );
   }
 
-  // Delete any existing pending dispatches for this run index (in case of re-schedule)
+  // Delete any existing pending dispatches for this run index (re-schedule)
   await prisma.campaignDispatch.deleteMany({
     where: { campaignId: id, runIndex, status: { in: ["pending", "processing"] } },
   });
 
-  // Create dispatches
   await prisma.campaignDispatch.createMany({ data: dispatches });
 
-  const updated = await prisma.campaign.update({
-    where: { id },
-    data: { status: "scheduled", nextRunAt: null },
-  });
+  // For immediate, update startAt to now so the scheduler finds it immediately
+  const updateData: Record<string, unknown> = { status: "scheduled", nextRunAt: null };
+  if (campaign.sendType === "immediate") {
+    updateData.startAt = new Date();
+  }
+
+  const updated = await prisma.campaign.update({ where: { id }, data: updateData });
 
   return NextResponse.json({ campaign: updated, dispatches: dispatches.length });
 }

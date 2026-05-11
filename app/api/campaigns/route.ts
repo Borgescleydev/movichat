@@ -18,7 +18,6 @@ export async function GET(req: NextRequest) {
     orderBy: { createdAt: "desc" },
   });
 
-  // Enrich with dispatch counts by status
   const enriched = await Promise.all(
     campaigns.map(async (c) => {
       const [sentCount, failedCount, pendingCount] = await Promise.all([
@@ -41,27 +40,47 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json();
-  const { name, description, templateId, instanceId, groupIds, variableValues, startAt, repeatType, repeatEndAt, cadenceMinSeconds, cadenceMaxSeconds, cadenceMaxPerHour } = body;
+  const {
+    name, description, channel, sendType,
+    templateId, instanceId, groupIds, variableValues,
+    startAt, repeatType, repeatEndAt,
+    cadenceMinSeconds, cadenceMaxSeconds, cadenceMaxPerHour,
+    windowStart, windowEnd, windowDays,
+    batchSize, batchIntervalMinutes,
+    repeatEveryX, repeatEveryUnit,
+  } = body;
 
   if (!name?.trim()) return NextResponse.json({ error: "Nome obrigatório" }, { status: 400 });
   if (!templateId) return NextResponse.json({ error: "Template obrigatório" }, { status: 400 });
   if (!instanceId) return NextResponse.json({ error: "Instância obrigatória" }, { status: 400 });
   if (!groupIds?.length) return NextResponse.json({ error: "Selecione ao menos um grupo" }, { status: 400 });
-  if (!startAt) return NextResponse.json({ error: "Data de início obrigatória" }, { status: 400 });
+
+  const resolvedSendType = sendType || "scheduled";
+  // immediate campaigns use current time
+  const resolvedStartAt = resolvedSendType === "immediate" ? new Date() : (startAt ? new Date(startAt) : new Date());
 
   const campaign = await prisma.campaign.create({
     data: {
       name: name.trim(),
       description: description?.trim() || null,
+      channel: channel || "whatsapp",
+      sendType: resolvedSendType,
       templateId,
       instanceId,
       variableValues: JSON.stringify(variableValues || {}),
-      startAt: new Date(startAt),
+      startAt: resolvedStartAt,
       repeatType: repeatType || "none",
       repeatEndAt: repeatEndAt ? new Date(repeatEndAt) : null,
       cadenceMinSeconds: Number(cadenceMinSeconds) || 10,
       cadenceMaxSeconds: Number(cadenceMaxSeconds) || 30,
       cadenceMaxPerHour: Number(cadenceMaxPerHour) || 60,
+      windowStart: windowStart || null,
+      windowEnd: windowEnd || null,
+      windowDays: JSON.stringify(windowDays || []),
+      batchSize: batchSize ? Number(batchSize) : null,
+      batchIntervalMinutes: batchIntervalMinutes ? Number(batchIntervalMinutes) : null,
+      repeatEveryX: repeatEveryX ? Number(repeatEveryX) : null,
+      repeatEveryUnit: repeatEveryUnit || null,
       groups: {
         create: (groupIds as string[]).map((groupId, index) => ({ groupId, order: index })),
       },

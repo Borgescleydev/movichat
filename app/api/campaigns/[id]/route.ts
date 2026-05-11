@@ -38,6 +38,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const data: Record<string, unknown> = {};
   if (body.name !== undefined) data.name = body.name.trim();
   if (body.description !== undefined) data.description = body.description?.trim() || null;
+  if (body.channel !== undefined) data.channel = body.channel;
+  if (body.sendType !== undefined) data.sendType = body.sendType;
   if (body.templateId !== undefined) data.templateId = body.templateId;
   if (body.instanceId !== undefined) data.instanceId = body.instanceId;
   if (body.variableValues !== undefined) data.variableValues = JSON.stringify(body.variableValues);
@@ -47,9 +49,15 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (body.cadenceMinSeconds !== undefined) data.cadenceMinSeconds = Number(body.cadenceMinSeconds);
   if (body.cadenceMaxSeconds !== undefined) data.cadenceMaxSeconds = Number(body.cadenceMaxSeconds);
   if (body.cadenceMaxPerHour !== undefined) data.cadenceMaxPerHour = Number(body.cadenceMaxPerHour);
+  if (body.windowStart !== undefined) data.windowStart = body.windowStart || null;
+  if (body.windowEnd !== undefined) data.windowEnd = body.windowEnd || null;
+  if (body.windowDays !== undefined) data.windowDays = JSON.stringify(body.windowDays || []);
+  if (body.batchSize !== undefined) data.batchSize = body.batchSize ? Number(body.batchSize) : null;
+  if (body.batchIntervalMinutes !== undefined) data.batchIntervalMinutes = body.batchIntervalMinutes ? Number(body.batchIntervalMinutes) : null;
+  if (body.repeatEveryX !== undefined) data.repeatEveryX = body.repeatEveryX ? Number(body.repeatEveryX) : null;
+  if (body.repeatEveryUnit !== undefined) data.repeatEveryUnit = body.repeatEveryUnit || null;
   if (body.status !== undefined) data.status = body.status;
 
-  // Update groups if provided
   if (body.groupIds) {
     await prisma.campaignGroup.deleteMany({ where: { campaignId: id } });
     await prisma.campaignGroup.createMany({

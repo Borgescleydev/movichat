@@ -47,6 +47,19 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
       });
       ok = res.ok;
       detail = ok ? "Conectado à Evolution API" : `Erro ${res.status} — verifique a API Key`;
+
+    } else if (provider.type === "wppconnect") {
+      // WPPConnect Server: GET /api/{secretKey}/generate-token (health check)
+      const checkUrl = `${base}/api/${provider.apiKey}/WPPCONNECT/generate-token`;
+      try {
+        const res = await fetch(checkUrl, { signal: AbortSignal.timeout(8000) });
+        // Any response (even 404 for unknown session) means server is reachable
+        ok = res.status !== 401 && res.status !== 403;
+        detail = ok ? "Servidor WPPConnect acessível" : `Erro de autenticação (${res.status}) — verifique o SECRETKEY`;
+      } catch {
+        ok = false;
+        detail = "Servidor WPPConnect inacessível — verifique a URL e se está rodando";
+      }
     }
 
     return NextResponse.json({ ok, detail, type: provider.type, baseUrl: base });

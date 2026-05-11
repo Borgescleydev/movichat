@@ -16,6 +16,6 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
     where: { campaignId: id, status: { in: ["pending", "processing"] } },
   });
 
-  const updated = await prisma.campaign.update({ where: { id }, data: { status: "draft" } });
+  const updated = await prisma.campaign.update({ where: { id }, data: { status: "cancelled" } });
   return NextResponse.json(updated);
 }

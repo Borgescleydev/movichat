@@ -26,6 +26,7 @@ export default function GroupsTab() {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState("");
+  const [syncError, setSyncError] = useState(false);
   const [search, setSearch] = useState("");
 
   const loadInstances = useCallback(async () => {
@@ -34,14 +35,34 @@ export default function GroupsTab() {
     const providers = await res.json();
     const all: Instance[] = [];
     for (const p of providers) {
-      if (p.type === "evolution") {
+      if (["evolution", "wppconnect"].includes(p.type)) {
         for (const inst of p.instances || []) {
           all.push({ ...inst, provider: { type: p.type } });
         }
       }
     }
     setInstances(all);
-    if (all.length > 0 && !selectedInstanceId) setSelectedInstanceId(all[0].id);
+    // Auto-select first connected instance, or just first
+    if (all.length > 0 && !selectedInstanceId) {
+      const connected = all.find((i) => i.status === "connected");
+      setSelectedInstanceId(connected?.id || all[0].id);
+    }
+
+    // Refresh live status for each instance
+    for (const p of providers) {
+      if (["evolution", "wppconnect"].includes(p.type)) {
+        for (const inst of p.instances || []) {
+          fetch(`/api/providers/${p.id}/status?instanceId=${inst.id}`)
+            .then((r) => r.ok ? r.json() : null)
+            .then((d) => {
+              if (d?.status) {
+                setInstances((prev) => prev.map((i) => i.id === inst.id ? { ...i, status: d.status } : i));
+              }
+            })
+            .catch(() => {});
+        }
+      }
+    }
   }, [selectedInstanceId]);
 
   const loadGroups = useCallback(async () => {
@@ -62,6 +83,7 @@ export default function GroupsTab() {
     if (!selectedInstanceId) return;
     setSyncing(true);
     setSyncMsg("");
+    setSyncError(false);
     try {
       const res = await fetch("/api/campaigns/groups/sync", {
         method: "POST",
@@ -70,11 +92,16 @@ export default function GroupsTab() {
       });
       const data = await res.json();
       if (res.ok) {
-        setSyncMsg(`${data.synced} grupos sincronizados`);
+        setSyncMsg(data.message || `${data.synced} grupos sincronizados com sucesso`);
+        setSyncError(false);
         setGroups(data.groups || []);
       } else {
         setSyncMsg(data.error || "Erro ao sincronizar");
+        setSyncError(true);
       }
+    } catch (e) {
+      setSyncMsg(`Erro de rede: ${e instanceof Error ? e.message : "falha ao conectar"}`);
+      setSyncError(true);
     } finally {
       setSyncing(false);
     }
@@ -137,8 +164,20 @@ export default function GroupsTab() {
       </div>
 
       {syncMsg && (
-        <div className="text-sm px-4 py-2 rounded-lg" style={{ backgroundColor: "var(--primary-light)", color: "var(--primary)" }}>
-          {syncMsg}
+        <div
+          className="text-sm px-4 py-3 rounded-lg"
+          style={{
+            backgroundColor: syncError ? "color-mix(in srgb, var(--danger) 10%, transparent)" : "var(--primary-light)",
+            color: syncError ? "var(--danger)" : "var(--primary)",
+            border: `1px solid ${syncError ? "color-mix(in srgb, var(--danger) 30%, transparent)" : "color-mix(in srgb, var(--primary) 20%, transparent)"}`,
+          }}
+        >
+          {syncError ? "⚠ " : "✓ "}{syncMsg}
+          {syncError && (
+            <div className="mt-1.5 text-xs opacity-80">
+              Verifique se a instância está conectada (status verde) e se o provedor está acessível. Consulte o guia em Configurações → Provedores API → Como configurar.
+            </div>
+          )}
         </div>
       )}
 

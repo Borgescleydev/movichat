@@ -33,28 +33,34 @@ model PipelineColumn {
 }
 
 model Contact {
-  id           String   @id @default(cuid())
+  id           String    @id @default(cuid())
   name         String
-  phone        String   @unique
+  phone        String    @unique
   email        String?
   notes        String?
   columnId     String
   assignedToId String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  instanceId   String?
+  lastReadAt   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
-  column     PipelineColumn @relation(fields: [columnId], references: [id])
-  assignedTo User?          @relation("AssignedAgent", fields: [assignedToId], references: [id])
+  column     PipelineColumn    @relation(fields: [columnId], references: [id])
+  assignedTo User?             @relation("AssignedAgent", fields: [assignedToId], references: [id])
+  instance   WhatsAppInstance? @relation(fields: [instanceId], references: [id])
   messages   Message[]
 }
 
 model Message {
-  id        String   @id @default(cuid())
-  contactId String
-  body      String
-  fromMe    Boolean  @default(false)
-  timestamp DateTime @default(now())
-  status    String   @default("received")
+  id          String   @id @default(cuid())
+  contactId   String
+  body        String
+  fromMe      Boolean  @default(false)
+  timestamp   DateTime @default(now())
+  status      String   @default("received")
+  mediaUrl    String?  // full data URL (data:mime;base64,...) or remote URL
+  mediaType   String?  // "image" | "video" | "audio" | "document"
+  waMessageId String?  // WhatsApp message key.id for media fetching
 
   contact Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
 }
@@ -85,20 +91,23 @@ model ApiProvider {
 }
 
 model WhatsAppInstance {
-  id           String   @id @default(cuid())
-  providerId   String
-  instanceName String
-  instanceId   String?
-  status       String   @default("disconnected")
-  phone        String?
-  qrCode       String?
-  label        String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id                   String   @id @default(cuid())
+  providerId           String
+  instanceName         String
+  instanceId           String?
+  status               String   @default("disconnected")
+  phone                String?
+  qrCode               String?
+  label                String?
+  conversationsEnabled Boolean  @default(true)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 
-  provider  ApiProvider     @relation(fields: [providerId], references: [id], onDelete: Cascade)
-  groups    WhatsAppGroup[]
-  campaigns Campaign[]
+  provider      ApiProvider          @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  groups        WhatsAppGroup[]
+  campaigns     Campaign[]
+  manualLogs    ManualDispatchLog[]
+  contacts      Contact[]
 }
 
 model WhatsAppGroup {
@@ -133,23 +142,32 @@ model MessageTemplate {
 }
 
 model Campaign {
-  id                String    @id @default(cuid())
-  name              String
-  description       String?
-  status            String    @default("draft")
-  templateId        String
-  instanceId        String
-  variableValues    String    @default("{}")
-  startAt           DateTime
-  repeatType        String    @default("none")
-  repeatEndAt       DateTime?
-  nextRunAt         DateTime?
-  runCount          Int       @default(0)
-  cadenceMinSeconds Int       @default(10)
-  cadenceMaxSeconds Int       @default(30)
-  cadenceMaxPerHour Int       @default(60)
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+  id                   String    @id @default(cuid())
+  name                 String
+  description          String?
+  status               String    @default("draft")
+  channel              String    @default("whatsapp")
+  sendType             String    @default("scheduled")
+  templateId           String
+  instanceId           String
+  variableValues       String    @default("{}")
+  startAt              DateTime
+  repeatType           String    @default("none")
+  repeatEndAt          DateTime?
+  nextRunAt            DateTime?
+  runCount             Int       @default(0)
+  cadenceMinSeconds    Int       @default(10)
+  cadenceMaxSeconds    Int       @default(30)
+  cadenceMaxPerHour    Int       @default(60)
+  windowStart          String?
+  windowEnd            String?
+  windowDays           String    @default("[]")
+  batchSize            Int?
+  batchIntervalMinutes Int?
+  repeatEveryX         Int?
+  repeatEveryUnit      String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
 
   template   MessageTemplate  @relation(fields: [templateId], references: [id])
   instance   WhatsAppInstance @relation(fields: [instanceId], references: [id])
@@ -186,6 +204,23 @@ model CampaignDispatch {
   group    WhatsAppGroup @relation(fields: [groupId], references: [id])
 
   @@unique([campaignId, groupId, runIndex])
+}
+
+model ManualDispatchLog {
+  id           String   @id @default(cuid())
+  instanceId   String
+  message      String
+  mediaType    String?
+  mediaCaption String?
+  hasMedia     Boolean  @default(false)
+  groupCount   Int      @default(0)
+  sentCount    Int      @default(0)
+  failedCount  Int      @default(0)
+  results      String   @default("[]")
+  sentAt       DateTime @default(now())
+  createdAt    DateTime @default(now())
+
+  instance WhatsAppInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
 }
 
 model SystemSettings {

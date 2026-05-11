@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getProvider } from "@/lib/providers";
+import { notifySseClients } from "@/app/api/conversations/events/route";
 
 export async function POST(req: NextRequest) {
   try {
@@ -56,9 +57,9 @@ export async function POST(req: NextRequest) {
     });
 
     if (parsed.type === "message") {
-      const { phone, name, message } = parsed.data;
+      const { phone, name, message, waMessageId, mediaBase64, mediaType } = parsed.data;
       if (phone && message) {
-        await handleIncomingMessage(phone, name || phone, message, instance?.id);
+        await handleIncomingMessage(phone, name || phone, message, instance?.id, waMessageId, mediaBase64, mediaType);
       }
     }
 
@@ -93,8 +94,9 @@ export async function POST(req: NextRequest) {
   }
 }
 
-async function handleIncomingMessage(phone: string, name: string, message: string, instanceId?: string) {
+async function handleIncomingMessage(phone: string, name: string, message: string, instanceId?: string, waMessageId?: string, mediaBase64?: string, mediaType?: string) {
   const cleanPhone = phone.replace(/\D/g, "");
+  if (!cleanPhone || !message) return;
 
   let contact = await prisma.contact.findUnique({ where: { phone: cleanPhone } });
 
@@ -102,22 +104,45 @@ async function handleIncomingMessage(phone: string, name: string, message: strin
     const defaultCol = await prisma.pipelineColumn.findFirst({
       where: { isDefault: true },
       orderBy: { order: "asc" },
-    });
+    }) ?? await prisma.pipelineColumn.findFirst({ orderBy: { order: "asc" } });
 
     if (defaultCol) {
       contact = await prisma.contact.create({
-        data: { name, phone: cleanPhone, columnId: defaultCol.id },
+        data: {
+          name: name && name !== cleanPhone ? name : `+${cleanPhone}`,
+          phone: cleanPhone,
+          columnId: defaultCol.id,
+          instanceId: instanceId ?? null,
+        },
       });
     }
+  } else {
+    // Update name if we now have a real name, and link to instance if not already linked
+    await prisma.contact.update({
+      where: { id: contact.id },
+      data: {
+        ...(name && name !== cleanPhone && contact.name === `+${cleanPhone}` ? { name } : {}),
+        ...(instanceId && !contact.instanceId ? { instanceId } : {}),
+        updatedAt: new Date(),
+      },
+    });
   }
 
   if (contact) {
-    await prisma.message.create({
-      data: { contactId: contact.id, body: message, fromMe: false, status: "received" },
+    const msg = await prisma.message.create({
+      data: {
+        contactId: contact.id,
+        body: message,
+        fromMe: false,
+        status: "received",
+        ...(waMessageId ? { waMessageId } : {}),
+        ...(mediaBase64 ? { mediaUrl: mediaBase64 } : {}),
+        ...(mediaType   ? { mediaType } : {}),
+      },
     });
-    await prisma.contact.update({
-      where: { id: contact.id },
-      data: { updatedAt: new Date() },
-    });
+    // Push real-time notification to connected clients
+    try {
+      notifySseClients({ type: "message", contactId: contact.id, messageId: msg.id });
+    } catch { /* SSE not critical */ }
   }
 }

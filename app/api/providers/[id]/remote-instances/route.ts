@@ -68,6 +68,26 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
           });
         });
       }
+
+    } else if (provider.type === "wppconnect") {
+      // WPPConnect Server doesn't have a list-all-sessions endpoint in the free version.
+      // Return local instances from DB.
+      const dbInstances = await prisma.whatsAppInstance.findMany({ where: { providerId: id } });
+      for (const inst of dbInstances) {
+        try {
+          const res = await fetch(`${base}/api/${provider.apiKey}/${inst.instanceName}/check-connection-session`, {
+            signal: AbortSignal.timeout(5000),
+          });
+          const data = res.ok ? await res.json() : {};
+          instances.push({
+            name: inst.label || inst.instanceName,
+            status: data.status === true ? "CONNECTED" : "DISCONNECTED",
+            phone: inst.phone || undefined,
+          });
+        } catch {
+          instances.push({ name: inst.label || inst.instanceName, status: "OFFLINE" });
+        }
+      }
     }
 
     return NextResponse.json({ instances, total: instances.length });
