@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/auth";
+import { runCampaignDispatcher } from "@/lib/campaign-dispatcher";
 
 export async function GET(_req: NextRequest) {
   const user = await getAuthUser();
@@ -24,7 +25,10 @@ export async function GET(_req: NextRequest) {
       where: { status: { in: ["sent", "failed", "skipped"] } },
       orderBy: { updatedAt: "desc" },
       take: 20,
-      include: { campaign: { select: { name: true } }, group: { select: { name: true } } },
+      include: {
+        campaign: { select: { name: true } },
+        group: { select: { name: true } },
+      },
     }),
     prisma.campaign.groupBy({
       by: ["status"],
@@ -70,20 +74,9 @@ export async function POST(_req: NextRequest) {
     return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
   }
 
-  // Trigger cron internally by calling the dispatcher logic directly
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL
-    ? `https://${process.env.VERCEL_URL}`
-    : "http://localhost:3000";
-
   try {
-    const res = await fetch(`${baseUrl}/api/cron/campaign-dispatcher`, {
-      headers: {
-        "x-vercel-cron": "1",
-        "x-internal-trigger": "settings-panel",
-      },
-    });
-    const data = await res.json();
-    return NextResponse.json({ triggered: true, result: data });
+    const result = await runCampaignDispatcher();
+    return NextResponse.json({ triggered: true, result });
   } catch (e) {
     return NextResponse.json(
       { triggered: false, error: e instanceof Error ? e.message : "Erro ao executar" },
