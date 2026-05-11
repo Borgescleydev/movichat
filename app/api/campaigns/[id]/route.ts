@@ -58,26 +58,32 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (body.repeatEveryUnit !== undefined) data.repeatEveryUnit = body.repeatEveryUnit || null;
   if (body.status !== undefined) data.status = body.status;
 
-  if (body.groupIds) {
-    await prisma.campaignGroup.deleteMany({ where: { campaignId: id } });
-    await prisma.campaignGroup.createMany({
-      data: (body.groupIds as string[]).map((groupId: string, index: number) => ({
-        campaignId: id, groupId, order: index,
-      })),
+  try {
+    if (body.groupIds) {
+      await prisma.campaignGroup.deleteMany({ where: { campaignId: id } });
+      await prisma.campaignGroup.createMany({
+        data: (body.groupIds as string[]).map((groupId: string, index: number) => ({
+          campaignId: id, groupId, order: index,
+        })),
+      });
+    }
+
+    const updated = await prisma.campaign.update({
+      where: { id },
+      data,
+      include: {
+        template: { select: { id: true, name: true } },
+        instance: { select: { id: true, label: true, instanceName: true } },
+        groups: { include: { group: true }, orderBy: { order: "asc" } },
+      },
     });
+
+    return NextResponse.json(updated);
+  } catch (err) {
+    console.error("[PATCH /api/campaigns/:id]", err);
+    const msg = err instanceof Error ? err.message : "Erro interno ao atualizar campanha";
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
-
-  const updated = await prisma.campaign.update({
-    where: { id },
-    data,
-    include: {
-      template: { select: { id: true, name: true } },
-      instance: { select: { id: true, label: true, instanceName: true } },
-      groups: { include: { group: true }, orderBy: { order: "asc" } },
-    },
-  });
-
-  return NextResponse.json(updated);
 }
 
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {

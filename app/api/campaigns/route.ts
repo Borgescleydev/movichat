@@ -56,10 +56,11 @@ export async function POST(req: NextRequest) {
   if (!groupIds?.length) return NextResponse.json({ error: "Selecione ao menos um grupo" }, { status: 400 });
 
   const resolvedSendType = sendType || "scheduled";
-  // immediate campaigns use current time
   const resolvedStartAt = resolvedSendType === "immediate" ? new Date() : (startAt ? new Date(startAt) : new Date());
 
-  const campaign = await prisma.campaign.create({
+  let campaign;
+  try {
+    campaign = await prisma.campaign.create({
     data: {
       name: name.trim(),
       description: description?.trim() || null,
@@ -91,6 +92,11 @@ export async function POST(req: NextRequest) {
       groups: { include: { group: true } },
     },
   });
+  } catch (err) {
+    console.error("[POST /api/campaigns]", err);
+    const msg = err instanceof Error ? err.message : "Erro interno ao criar campanha";
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
 
   return NextResponse.json(campaign, { status: 201 });
 }

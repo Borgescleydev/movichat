@@ -200,8 +200,8 @@ export default function CampaignForm({ onClose, onSaved, editing }: CampaignForm
     setSaving(true);
     try {
       const payload: Record<string, unknown> = {
-        name,
-        description: description || undefined,
+        name: name.trim(),
+        description: description.trim() || null,
         channel,
         sendType,
         templateId,
@@ -210,38 +210,44 @@ export default function CampaignForm({ onClose, onSaved, editing }: CampaignForm
         variableValues,
         startAt: sendType === "immediate" ? new Date().toISOString() : (startAt ? new Date(startAt).toISOString() : new Date().toISOString()),
         repeatType: sendType === "recurring" ? repeatType : "none",
-        repeatEndAt: sendType === "recurring" && repeatEndAt ? new Date(repeatEndAt).toISOString() : undefined,
+        repeatEndAt: (sendType === "recurring" && repeatEndAt) ? new Date(repeatEndAt).toISOString() : null,
         cadenceMinSeconds: cadenceMin,
         cadenceMaxSeconds: cadenceMax,
         cadenceMaxPerHour,
+        windowStart: sendType === "windowed" ? (windowStart || null) : null,
+        windowEnd: sendType === "windowed" ? (windowEnd || null) : null,
+        windowDays: sendType === "windowed" ? windowDays : [],
+        batchSize: sendType === "batch" ? batchSize : null,
+        batchIntervalMinutes: sendType === "batch" ? batchIntervalMinutes : null,
+        repeatEveryX: (sendType === "recurring" && repeatType === "custom") ? repeatEveryX : null,
+        repeatEveryUnit: (sendType === "recurring" && repeatType === "custom") ? repeatEveryUnit : null,
       };
 
-      if (sendType === "recurring" && repeatType === "custom") {
-        payload.repeatEveryX = repeatEveryX;
-        payload.repeatEveryUnit = repeatEveryUnit;
+      const url = editing ? `/api/campaigns/${editing.id}` : "/api/campaigns";
+      const method = editing ? "PATCH" : "POST";
+
+      let res: Response;
+      try {
+        res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      } catch {
+        alert("Erro de conexão. Verifique sua internet e tente novamente.");
+        return;
       }
 
-      if (sendType === "windowed") {
-        payload.windowStart = windowStart;
-        payload.windowEnd = windowEnd;
-        payload.windowDays = windowDays;
+      let data: Record<string, unknown> = {};
+      try {
+        data = await res.json();
+      } catch {
+        // response wasn't JSON (unexpected server error)
       }
-
-      if (sendType === "batch") {
-        payload.batchSize = batchSize;
-        payload.batchIntervalMinutes = batchIntervalMinutes;
-      }
-
-      const res = editing
-        ? await fetch(`/api/campaigns/${editing.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) })
-        : await fetch("/api/campaigns", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
 
       if (res.ok) {
         onSaved();
       } else {
-        const data = await res.json();
-        alert(data.error || "Erro ao salvar campanha");
+        alert((data.error as string) || `Erro ao salvar campanha (HTTP ${res.status})`);
       }
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Erro inesperado ao salvar");
     } finally {
       setSaving(false);
     }
