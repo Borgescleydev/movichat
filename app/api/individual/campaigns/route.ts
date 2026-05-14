@@ -1,0 +1,99 @@
+import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { getAuthUser, isSuperAdmin } from "@/lib/auth";
+
+export async function GET(req: NextRequest) {
+  const user = await getAuthUser();
+  if (!user) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
+
+  const status = req.nextUrl.searchParams.get("status");
+  const ownerFilter = isSuperAdmin(user) ? {} : { createdById: user.userId };
+  const campaigns = await prisma.contactCampaign.findMany({
+    where: { ...ownerFilter, ...(status ? { status } : {}) },
+    include: {
+      template: { select: { id: true, name: true, mediaType: true } },
+      instance: { select: { id: true, label: true, instanceName: true, status: true } },
+      contacts: { include: { contact: { select: { id: true, name: true, phone: true } } } },
+      _count: { select: { dispatches: true } },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
+  const enriched = await Promise.all(
+    campaigns.map(async (c) => {
+      const [sentCount, failedCount, pendingCount] = await Promise.all([
+        prisma.contactCampaignDispatch.count({ where: { campaignId: c.id, status: "sent" } }),
+        prisma.contactCampaignDispatch.count({ where: { campaignId: c.id, status: "failed" } }),
+        prisma.contactCampaignDispatch.count({ where: { campaignId: c.id, status: { in: ["pending", "processing"] } } }),
+      ]);
+      return { ...c, sentCount, failedCount, pendingCount, totalContacts: c.contacts.length };
+    })
+  );
+
+  return NextResponse.json(enriched);
+}
+
+export async function POST(req: NextRequest) {
+  const user = await getAuthUser();
+  if (!user) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
+
+  const body = await req.json();
+  const {
+    name, description, sendType,
+    templateId, instanceId, contactIds, variableValues,
+    startAt, repeatType, repeatEndAt,
+    cadenceMinSeconds, cadenceMaxSeconds, cadenceMaxPerHour,
+    windowStart, windowEnd, windowDays,
+    batchSize, batchIntervalMinutes,
+    repeatEveryX, repeatEveryUnit,
+    isDraft,
+  } = body;
+
+  if (!name?.trim()) return NextResponse.json({ error: "Nome obrigatório" }, { status: 400 });
+  if (!templateId) return NextResponse.json({ error: "Template obrigatório" }, { status: 400 });
+  if (!instanceId) return NextResponse.json({ error: "Instância obrigatória" }, { status: 400 });
+  if (!isDraft && !contactIds?.length) return NextResponse.json({ error: "Selecione ao menos um contato" }, { status: 400 });
+
+  const resolvedSendType = sendType || "scheduled";
+  const resolvedStartAt = resolvedSendType === "immediate" ? new Date() : (startAt ? new Date(startAt) : new Date());
+
+  try {
+    const campaign = await prisma.contactCampaign.create({
+      data: {
+        name: name.trim(),
+        description: description?.trim() || null,
+        sendType: resolvedSendType,
+        templateId,
+        instanceId,
+        variableValues: JSON.stringify(variableValues || {}),
+        startAt: resolvedStartAt,
+        repeatType: repeatType || "none",
+        repeatEndAt: repeatEndAt ? new Date(repeatEndAt) : null,
+        cadenceMinSeconds: Number(cadenceMinSeconds) || 30,
+        cadenceMaxSeconds: Number(cadenceMaxSeconds) || 90,
+        cadenceMaxPerHour: Number(cadenceMaxPerHour) || 40,
+        windowStart: windowStart || null,
+        windowEnd: windowEnd || null,
+        windowDays: JSON.stringify(windowDays || []),
+        batchSize: batchSize ? Number(batchSize) : null,
+        batchIntervalMinutes: batchIntervalMinutes ? Number(batchIntervalMinutes) : null,
+        repeatEveryX: repeatEveryX ? Number(repeatEveryX) : null,
+        repeatEveryUnit: repeatEveryUnit || null,
+        createdById: user.userId,
+        contacts: contactIds?.length
+          ? { create: (contactIds as string[]).map((contactId, index) => ({ contactId, order: index })) }
+          : undefined,
+      },
+      include: {
+        template: { select: { id: true, name: true } },
+        instance: { select: { id: true, label: true, instanceName: true } },
+        contacts: { include: { contact: true } },
+      },
+    });
+    return NextResponse.json(campaign, { status: 201 });
+  } catch (err) {
+    console.error("[POST /api/individual/campaigns]", err);
+    const msg = err instanceof Error ? err.message : "Erro interno ao criar campanha";
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
+}
