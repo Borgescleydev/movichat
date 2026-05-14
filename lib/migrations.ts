@@ -136,6 +136,90 @@ const MIGRATIONS = [
   // --- User avatar + permissions ---
   { name: "User_avatar",       sql: `ALTER TABLE "User" ADD COLUMN "avatar" TEXT` },
   { name: "User_permissions",  sql: `ALTER TABLE "User" ADD COLUMN "permissions" TEXT NOT NULL DEFAULT '{}'` },
+  // --- Data isolation: createdById on campaign assets ---
+  { name: "Campaign_createdById",         sql: `ALTER TABLE "Campaign" ADD COLUMN "createdById" TEXT REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE` },
+  { name: "ContactCampaign_createdById",  sql: `ALTER TABLE "ContactCampaign" ADD COLUMN "createdById" TEXT REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE` },
+  { name: "MessageTemplate_createdById",  sql: `ALTER TABLE "MessageTemplate" ADD COLUMN "createdById" TEXT REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE` },
+  { name: "ContactTemplate_createdById",  sql: `ALTER TABLE "ContactTemplate" ADD COLUMN "createdById" TEXT REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE` },
+  { name: "DispatchGroup_createdById",    sql: `ALTER TABLE "DispatchGroup" ADD COLUMN "createdById" TEXT REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE` },
+  {
+    name: "SystemChangelog",
+    sql: `CREATE TABLE IF NOT EXISTS "SystemChangelog" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "version" TEXT NOT NULL,
+      "title" TEXT NOT NULL,
+      "description" TEXT,
+      "changes" TEXT NOT NULL DEFAULT '[]',
+      "deployedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL
+    )`,
+  },
+  {
+    name: "SystemChangelog_seed_v1",
+    sql: `INSERT OR IGNORE INTO "SystemChangelog" ("id","version","title","description","changes","deployedAt","createdAt","updatedAt") VALUES (
+      'changelog-v1-0-0',
+      'v1.0.0',
+      'Lançamento inicial do MoviChat',
+      'Primeira versão do sistema de CRM WhatsApp com todas as funcionalidades base.',
+      '[{"type":"feature","text":"Autenticação com JWT e controle de roles (superadmin, admin, agente)"},{"type":"feature","text":"Pipeline Kanban com colunas personalizáveis"},{"type":"feature","text":"Gerenciamento de contatos com busca e filtros"},{"type":"feature","text":"Conversas em tempo real com suporte a SSE e polling"},{"type":"feature","text":"Envio e recebimento de mensagens WhatsApp via Evolution API"},{"type":"feature","text":"Suporte a mídias: imagens, vídeos, áudios e documentos"},{"type":"feature","text":"Campanhas em grupo e disparos individuais"},{"type":"feature","text":"Configurações de instâncias e provedores WhatsApp"},{"type":"feature","text":"Sistema de temas personalizáveis"},{"type":"feature","text":"Sessões de usuário com histórico de acesso"}]',
+      CURRENT_TIMESTAMP,
+      CURRENT_TIMESTAMP,
+      CURRENT_TIMESTAMP
+    )`,
+  },
+  {
+    name: "SystemChangelog_seed_v1_1_0",
+    sql: `INSERT OR IGNORE INTO "SystemChangelog" ("id","version","title","description","changes","deployedAt","createdAt","updatedAt") VALUES (
+      'changelog-v1-1-0',
+      'v1.1.0',
+      'Melhorias de performance e sincronização de mensagens',
+      'Correções críticas de bugs e melhorias de performance na sincronização de conversas.',
+      '[{"type":"fix","text":"Corrigido bug de stale closure no SSE que impedia atualização em tempo real"},{"type":"fix","text":"Corrigido N+1 query na listagem de conversas usando batch query"},{"type":"fix","text":"Corrigido sincronização de instâncias que não associava contatos corretamente"},{"type":"improvement","text":"SSE usa DB polling ao invés de singleton em memória, funcionando em serverless Vercel"},{"type":"improvement","text":"Batch upsert nos grupos de campanha usando transações Prisma"},{"type":"feature","text":"Botão de buscar histórico de mensagens do provedor"},{"type":"feature","text":"Re-registro automático de webhooks na inicialização do servidor"},{"type":"feature","text":"Endpoint manual para re-registro de webhook por instância"},{"type":"feature","text":"Nova Conversa: modal para iniciar conversa com contato existente ou número novo"},{"type":"feature","text":"Notificações toast para novas mensagens quando conversa não está aberta"},{"type":"feature","text":"Painel de Versionamento exclusivo para superadmin com histórico completo de deploys"}]',
+      CURRENT_TIMESTAMP,
+      CURRENT_TIMESTAMP,
+      CURRENT_TIMESTAMP
+    )`,
+  },
+  {
+    name: "SystemChangelog_seed_v1_2_1",
+    sql: `INSERT OR IGNORE INTO "SystemChangelog" ("id","version","title","description","changes","deployedAt","createdAt","updatedAt") VALUES (
+      'changelog-v1-2-1',
+      'v1.2.1',
+      'Correção crítica: recebimento de mensagens após limpeza do banco',
+      'Após limpeza do banco de dados, o provider e a instância da Evolution foram removidos, impedindo o processamento dos webhooks recebidos. Corrigido e processo documentado.',
+      '[{"type":"fix","text":"Recriado registro do provider Evolution API no banco após limpeza — sem ele, o webhook chegava mas não era processado por ausência de provedor ativo"},{"type":"fix","text":"Recriada instância Borgescley no banco vinculada ao provider correto com status connected"},{"type":"fix","text":"Recriada WhatsAppSession padrão apontando para a instância ativa"},{"type":"fix","text":"Removidos registros duplicados de provider e instância gerados durante o processo de correção"},{"type":"improvement","text":"Identificado que limpezas de banco devem preservar os registros de ApiProvider e WhatsAppInstance para manter o fluxo de webhooks funcional"}]',
+      '2026-05-14T04:00:00.000Z',
+      '2026-05-14T04:00:00.000Z',
+      '2026-05-14T04:00:00.000Z'
+    )`,
+  },
+  {
+    name: "SystemChangelog_seed_v1_3_0",
+    sql: `INSERT OR IGNORE INTO "SystemChangelog" ("id","version","title","description","changes","deployedAt","createdAt","updatedAt") VALUES (
+      'changelog-v1-3-0',
+      'v1.3.0',
+      'Disparo Individual, Grupos de Disparo e Isolamento de Dados',
+      'Novo módulo de campanhas para contatos individuais, agrupamento de grupos WhatsApp em Grupos de Disparo, editor de templates com preview em tempo real, e isolamento completo de ativos por usuário.',
+      '[{"type":"feature","text":"Módulo de Disparo Individual: campanhas 1-a-1 com templates de múltiplas variações para A/B testing"},{"type":"feature","text":"Templates Individuais com variações de mensagem, suporte a mídia e preview do celular em tempo real"},{"type":"feature","text":"Grupos de Disparo: coleções reutilizáveis de grupos WhatsApp para facilitar o agendamento de campanhas"},{"type":"feature","text":"Editor de templates de campanha reformulado com toolbar de formatação, contador de caracteres e preview do WhatsApp"},{"type":"feature","text":"Rastreamento de sessões de usuário com IP, dispositivo, browser, OS e geolocalização"},{"type":"feature","text":"Painel de Sessões nas configurações com histórico de acessos e revogação de sessão"},{"type":"feature","text":"Página de Versionamento exclusiva para superadmin com histórico completo de deploys"},{"type":"improvement","text":"Isolamento de dados por criador: cada usuário vê apenas seus próprios templates, campanhas e grupos de disparo"},{"type":"improvement","text":"Superadmin tem visibilidade global; admin e agentes são escopados aos próprios ativos"},{"type":"improvement","text":"Permissão Disparo Individual é opt-in: agentes só acessam o módulo quando a permissão é concedida explicitamente"},{"type":"fix","text":"Templates e campanhas criados sem vínculo de dono agora exigem createdById em todas as rotas de criação"},{"type":"fix","text":"PATCH e DELETE de templates e campanhas verificam propriedade antes de permitir a operação"}]',
+      '2026-05-14T12:00:00.000Z',
+      '2026-05-14T12:00:00.000Z',
+      '2026-05-14T12:00:00.000Z'
+    )`,
+  },
+  {
+    name: "SystemChangelog_seed_v1_2_0",
+    sql: `INSERT OR IGNORE INTO "SystemChangelog" ("id","version","title","description","changes","deployedAt","createdAt","updatedAt") VALUES (
+      'changelog-v1-2-0',
+      'v1.2.0',
+      'Redesign completo do módulo de Conversas',
+      'Reformulação total da interface de conversas com layout de 4 colunas inspirado no Chatwoot/WhatsApp Web, correção definitiva do recebimento de mensagens em tempo real e múltiplas melhorias de UX.',
+      '[{"type":"fix","text":"Corrigido webhook da Evolution API que apontava para URL de deploy antiga inexistente — mensagens recebidas agora chegam corretamente"},{"type":"fix","text":"APP_URL fixado como variável de ambiente permanente no Vercel para não mudar entre deploys"},{"type":"fix","text":"Método updateWebhook corrigido para usar o formato correto da Evolution API v2 (POST com objeto aninhado)"},{"type":"fix","text":"SSE aprimorado com suporte ao parâmetro ?since= para não perder mensagens durante reconexões"},{"type":"improvement","text":"SSE com auto-reconexão automática em 3s após queda de conexão"},{"type":"improvement","text":"Indicador visual de status do SSE: ponto verde (conectado) / amarelo (reconectando)"},{"type":"improvement","text":"Auto-scroll inteligente: não força scroll ao topo quando usuário está lendo mensagens antigas"},{"type":"improvement","text":"Textarea de envio com auto-resize (até 4 linhas) substituindo input simples"},{"type":"feature","text":"Layout 4 colunas: Instâncias (72px) | Lista de conversas (300px) | Chat (flex) | Painel do contato (300px)"},{"type":"feature","text":"Separadores de dia nas mensagens: HOJE / ONTEM / data por extenso"},{"type":"feature","text":"Agrupamento visual de mensagens consecutivas do mesmo remetente em janelas de 5 minutos"},{"type":"feature","text":"Painel lateral de informações do contato com edição inline de nome, email, notas e coluna do pipeline"},{"type":"feature","text":"Timestamps relativos na lista de conversas: agora, 2min, 14:30, Ontem, 12/05"},{"type":"feature","text":"Filtros em pill tabs na lista de conversas: Todos / Não lidas / Lidas"},{"type":"feature","text":"Drag-and-drop de arquivos diretamente na área de chat"},{"type":"feature","text":"Busca de conversas com botão de limpar"},{"type":"feature","text":"Indicador de status de instância (conectado/desconectado) com badge na lista"}]',
+      '2026-05-14T03:30:00.000Z',
+      '2026-05-14T03:30:00.000Z',
+      '2026-05-14T03:30:00.000Z'
+    )`,
+  },
 ];
 
 let ran = false;
