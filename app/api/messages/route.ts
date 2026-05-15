@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/auth";
+import { notifySseClients } from "@/lib/sse-store";
 
 export async function GET(req: NextRequest) {
   const user = await getAuthUser();
@@ -113,6 +114,9 @@ export async function POST(req: NextRequest) {
       } : {}),
     },
   });
+
+  // Notify SSE clients (works in local dev; Vercel uses DB polling as primary mechanism)
+  notifySseClients({ type: "message", contactId, messageId: message.id, fromMe: true });
 
   await prisma.contact.update({ where: { id: contactId }, data: { updatedAt: new Date() } });
 

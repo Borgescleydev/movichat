@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { runCampaignDispatcher } from "@/lib/campaign-dispatcher";
+import { runContactDispatcher } from "@/lib/contact-dispatcher";
 
 export async function GET(req: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
@@ -12,8 +13,11 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const result = await runCampaignDispatcher();
-    return NextResponse.json(result);
+    const [groupResult, contactResult] = await Promise.all([
+      runCampaignDispatcher(),
+      runContactDispatcher(),
+    ]);
+    return NextResponse.json({ groups: groupResult, contacts: contactResult });
   } catch (e) {
     console.error("[CronDispatcher]", e);
     return NextResponse.json(

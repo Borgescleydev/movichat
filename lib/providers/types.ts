@@ -34,6 +34,16 @@ export interface SendMessageResult {
   status: string;
 }
 
+export interface MessageInfo {
+  waMessageId: string;
+  phone: string;
+  body: string;
+  fromMe: boolean;
+  timestamp: number; // unix seconds
+  mediaType?: string;
+  mediaBase64?: string;
+}
+
 export interface WhatsAppProvider {
   type: string;
   createInstance(config: ProviderConfig, instanceName: string, webhookUrl: string): Promise<InstanceInfo>;
@@ -42,6 +52,8 @@ export interface WhatsAppProvider {
   sendTextMessage(config: ProviderConfig, instanceName: string, phone: string, text: string): Promise<SendMessageResult>;
   fetchChats?(config: ProviderConfig, instanceName: string): Promise<ChatInfo[]>;
   fetchGroups?(config: ProviderConfig, instanceName: string): Promise<GroupInfo[]>;
+  fetchMessages?(config: ProviderConfig, instanceName: string, phone: string, count?: number): Promise<MessageInfo[]>;
+  updateWebhook?(config: ProviderConfig, instanceName: string, webhookUrl: string): Promise<void>;
   sendGroupMessage?(config: ProviderConfig, instanceName: string, groupJid: string, text: string): Promise<SendMessageResult>;
   sendGroupMedia?(config: ProviderConfig, instanceName: string, groupJid: string, mediaType: string, mediaUrl: string, caption?: string, fileName?: string): Promise<SendMessageResult>;
   deleteInstance(config: ProviderConfig, instanceName: string): Promise<void>;

@@ -38,35 +38,38 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Nenhuma coluna de pipeline configurada" }, { status: 500 });
   }
 
+  // Batch-fetch all existing contacts in one query
+  const phones = chats.map((c) => c.phone);
+  const existingContacts = await prisma.contact.findMany({
+    where: { phone: { in: phones } },
+    include: { messages: { orderBy: { timestamp: "desc" }, take: 1 } },
+  });
+  const existingMap = new Map(existingContacts.map((c) => [c.phone, c]));
+
   let created = 0;
   let updated = 0;
 
   for (const chat of chats) {
-    const existingContact = await prisma.contact.findUnique({ where: { phone: chat.phone } });
+    const existing = existingMap.get(chat.phone);
 
-    if (existingContact) {
-      // Update name and link to instance if not already linked
+    if (existing) {
+      // Always link to this instance (contact was found in this instance's chat list)
       await prisma.contact.update({
-        where: { id: existingContact.id },
+        where: { id: existing.id },
         data: {
-          name: chat.name !== chat.phone ? chat.name : existingContact.name,
-          instanceId: existingContact.instanceId || instanceId,
+          name: chat.name !== chat.phone ? chat.name : existing.name,
+          instanceId,
           updatedAt: new Date(),
         },
       });
 
-      // Upsert last message if present
       if (chat.lastMessageText && chat.lastMessageTs) {
         const ts = new Date(chat.lastMessageTs * 1000);
-        const existing = await prisma.message.findFirst({
-          where: { contactId: existingContact.id },
-          orderBy: { timestamp: "desc" },
-        });
-        // Only add if newer than latest stored message
-        if (!existing || ts > existing.timestamp) {
+        const lastMsg = existing.messages[0];
+        if (!lastMsg || ts > lastMsg.timestamp) {
           await prisma.message.create({
             data: {
-              contactId: existingContact.id,
+              contactId: existing.id,
               body: chat.lastMessageText,
               fromMe: chat.lastMessageFromMe ?? false,
               timestamp: ts,
@@ -77,7 +80,6 @@ export async function POST(req: NextRequest) {
       }
       updated++;
     } else {
-      // Create new contact
       const contact = await prisma.contact.create({
         data: {
           name: chat.name !== chat.phone ? chat.name : `+${chat.phone}`,

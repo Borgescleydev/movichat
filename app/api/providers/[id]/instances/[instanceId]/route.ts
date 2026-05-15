@@ -1,6 +1,110 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/auth";
+import { getProvider } from "@/lib/providers";
+
+/**
+ * Removes all FK-constrained records that block a WhatsAppInstance deletion,
+ * including messages/conversations linked to contacts of this instance.
+ */
+async function purgeInstanceDependents(instanceId: string) {
+  // 1. Groups belonging to this instance
+  const groups = await prisma.whatsAppGroup.findMany({
+    where: { instanceId },
+    select: { id: true },
+  });
+  const groupIds = groups.map((g) => g.id);
+
+  // 2. Remove campaign records referencing these groups (from any campaign)
+  if (groupIds.length > 0) {
+    await prisma.campaignDispatch.deleteMany({ where: { groupId: { in: groupIds } } });
+    await prisma.campaignGroup.deleteMany({ where: { groupId: { in: groupIds } } });
+  }
+
+  // 3. Campaigns owned by this instance
+  const campaigns = await prisma.campaign.findMany({
+    where: { instanceId },
+    select: { id: true },
+  });
+  const campaignIds = campaigns.map((c) => c.id);
+  if (campaignIds.length > 0) {
+    await prisma.campaignDispatch.deleteMany({ where: { campaignId: { in: campaignIds } } });
+    await prisma.campaignGroup.deleteMany({ where: { campaignId: { in: campaignIds } } });
+    await prisma.campaign.deleteMany({ where: { id: { in: campaignIds } } });
+  }
+
+  // 4. Contact campaigns owned by this instance
+  const contactCampaigns = await prisma.contactCampaign.findMany({
+    where: { instanceId },
+    select: { id: true },
+  });
+  const ccIds = contactCampaigns.map((c) => c.id);
+  if (ccIds.length > 0) {
+    await prisma.contactCampaignDispatch.deleteMany({ where: { campaignId: { in: ccIds } } });
+    await prisma.contactCampaignContact.deleteMany({ where: { campaignId: { in: ccIds } } });
+    await prisma.contactCampaign.deleteMany({ where: { id: { in: ccIds } } });
+  }
+
+  // 5. Conversations (messages) for contacts linked to this instance, then unlink contacts
+  const contacts = await prisma.contact.findMany({
+    where: { instanceId },
+    select: { id: true },
+  });
+  const contactIds = contacts.map((c) => c.id);
+  if (contactIds.length > 0) {
+    await prisma.message.deleteMany({ where: { contactId: { in: contactIds } } });
+    await prisma.contact.updateMany({ where: { id: { in: contactIds } }, data: { instanceId: null } });
+  }
+
+  // After this, prisma can safely delete the instance.
+  // Cascade will handle: WhatsAppGroup → DispatchGroupItem, ManualDispatchLog
+}
+
+export async function DELETE(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string; instanceId: string }> }
+) {
+  const user = await getAuthUser();
+  if (!user || !["superadmin", "admin"].includes(user.role)) {
+    return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
+  }
+
+  const { id, instanceId } = await params;
+  const { deleteFromProvider } = await req.json().catch(() => ({ deleteFromProvider: false }));
+
+  const apiProvider = await prisma.apiProvider.findUnique({ where: { id } });
+  if (!apiProvider) return NextResponse.json({ error: "Provedor não encontrado" }, { status: 404 });
+
+  const instance = await prisma.whatsAppInstance.findFirst({
+    where: { id: instanceId, providerId: id },
+  });
+  if (!instance) return NextResponse.json({ error: "Instância não encontrada" }, { status: 404 });
+
+  if (user.role !== "superadmin" && instance.ownerId && instance.ownerId !== user.userId) {
+    return NextResponse.json({ error: "Sem permissão para excluir esta instância" }, { status: 403 });
+  }
+
+  if (instance.status === "connected") {
+    return NextResponse.json({ error: "Desconecte a instância antes de removê-la" }, { status: 400 });
+  }
+
+  // Only call the provider API when explicitly requested — never required for local-only cleanup
+  if (deleteFromProvider) {
+    try {
+      const provider = getProvider(apiProvider.type);
+      await provider.deleteInstance(
+        { baseUrl: apiProvider.baseUrl, apiKey: apiProvider.apiKey },
+        instance.instanceName
+      );
+    } catch {
+      // Non-fatal — proceed with local deletion regardless
+    }
+  }
+
+  await purgeInstanceDependents(instanceId);
+  await prisma.whatsAppInstance.delete({ where: { id: instanceId } });
+  return NextResponse.json({ ok: true });
+}
 
 export async function PATCH(
   req: NextRequest,
@@ -19,9 +123,13 @@ export async function PATCH(
   });
   if (!instance) return NextResponse.json({ error: "Instância não encontrada" }, { status: 404 });
 
-  // Ownership check
   if (user.role !== "superadmin" && instance.ownerId && instance.ownerId !== user.userId) {
     return NextResponse.json({ error: "Sem permissão para editar esta instância" }, { status: 403 });
+  }
+
+  const ownerUpdate: Record<string, unknown> = {};
+  if (body.ownerId !== undefined) {
+    ownerUpdate.ownerId = body.ownerId || null;
   }
 
   const updated = await prisma.whatsAppInstance.update({
@@ -29,6 +137,7 @@ export async function PATCH(
     data: {
       ...(body.conversationsEnabled !== undefined ? { conversationsEnabled: body.conversationsEnabled } : {}),
       ...(body.label !== undefined ? { label: body.label } : {}),
+      ...ownerUpdate,
     },
   });
 

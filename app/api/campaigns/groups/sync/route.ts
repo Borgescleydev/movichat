@@ -34,35 +34,45 @@ export async function POST(req: NextRequest) {
     const freshJids = new Set(freshGroups.map((g) => g.groupJid));
     const now = new Date();
 
-    // Upsert all fresh groups
-    for (const group of freshGroups) {
-      await prisma.whatsAppGroup.upsert({
-        where: { instanceId_groupJid: { instanceId, groupJid: group.groupJid } },
-        create: {
-          instanceId,
-          groupJid: group.groupJid,
-          name: group.name,
-          participantCount: group.participantCount,
-          lastSyncAt: now,
-        },
-        update: {
-          name: group.name,
-          participantCount: group.participantCount,
-          lastSyncAt: now,
-        },
-      });
-    }
+    // Batch upsert all fresh groups in a single transaction
+    await prisma.$transaction(
+      freshGroups.map((group) =>
+        prisma.whatsAppGroup.upsert({
+          where: { instanceId_groupJid: { instanceId, groupJid: group.groupJid } },
+          create: {
+            instanceId,
+            groupJid: group.groupJid,
+            name: group.name,
+            participantCount: group.participantCount,
+            lastSyncAt: now,
+          },
+          update: {
+            name: group.name,
+            participantCount: group.participantCount,
+            lastSyncAt: now,
+          },
+        })
+      )
+    );
 
-    // Remove groups no longer in Evolution (only if no pending dispatches)
+    // Find stale groups (no longer in the provider)
     const existing = await prisma.whatsAppGroup.findMany({ where: { instanceId } });
-    for (const g of existing) {
-      if (!freshJids.has(g.groupJid)) {
-        const pending = await prisma.campaignDispatch.count({
-          where: { groupId: g.id, status: { in: ["pending", "processing"] } },
-        });
-        if (pending === 0) {
-          await prisma.whatsAppGroup.delete({ where: { id: g.id } });
-        }
+    const toRemove = existing.filter((g) => !freshJids.has(g.groupJid));
+
+    if (toRemove.length > 0) {
+      // Check pending dispatches for all stale groups in one query
+      const pendingCounts = await prisma.campaignDispatch.groupBy({
+        by: ["groupId"],
+        where: {
+          groupId: { in: toRemove.map((g) => g.id) },
+          status: { in: ["pending", "processing"] },
+        },
+        _count: { id: true },
+      });
+      const pendingGroupIds = new Set(pendingCounts.map((p) => p.groupId));
+      const deleteIds = toRemove.filter((g) => !pendingGroupIds.has(g.id)).map((g) => g.id);
+      if (deleteIds.length > 0) {
+        await prisma.whatsAppGroup.deleteMany({ where: { id: { in: deleteIds } } });
       }
     }
 

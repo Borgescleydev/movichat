@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getAuthUser } from "@/lib/auth";
+import { getAuthUser, isSuperAdmin } from "@/lib/auth";
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await getAuthUser();
@@ -16,18 +16,25 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     },
   });
   if (!campaign) return NextResponse.json({ error: "Campanha não encontrada" }, { status: 404 });
+
+  if (!isSuperAdmin(user) && campaign.createdById !== user.userId) {
+    return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
+  }
+
   return NextResponse.json(campaign);
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await getAuthUser();
-  if (!user || !["superadmin", "admin"].includes(user.role)) {
-    return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
-  }
+  if (!user) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
 
   const { id } = await params;
   const campaign = await prisma.campaign.findUnique({ where: { id } });
   if (!campaign) return NextResponse.json({ error: "Campanha não encontrada" }, { status: 404 });
+
+  if (!isSuperAdmin(user) && campaign.createdById !== user.userId) {
+    return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
+  }
 
   const body = await req.json();
   const editableStatuses = ["draft", "paused"];
@@ -88,13 +95,16 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await getAuthUser();
-  if (!user || !["superadmin", "admin"].includes(user.role)) {
-    return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
-  }
+  if (!user) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
 
   const { id } = await params;
   const campaign = await prisma.campaign.findUnique({ where: { id } });
   if (!campaign) return NextResponse.json({ error: "Campanha não encontrada" }, { status: 404 });
+
+  if (!isSuperAdmin(user) && campaign.createdById !== user.userId) {
+    return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
+  }
+
   if (campaign.status === "running") {
     return NextResponse.json({ error: "Pause a campanha antes de excluir" }, { status: 400 });
   }

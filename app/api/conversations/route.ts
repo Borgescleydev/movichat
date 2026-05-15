@@ -43,19 +43,26 @@ export async function GET(req: NextRequest) {
     orderBy,
   });
 
-  // Compute unread count for each contact
-  const withUnread = await Promise.all(
-    contacts.map(async (c) => {
-      const unreadCount = await prisma.message.count({
-        where: {
-          contactId: c.id,
-          fromMe: false,
-          ...(c.lastReadAt ? { timestamp: { gt: c.lastReadAt } } : {}),
-        },
-      });
-      return { ...c, unreadCount };
-    })
-  );
+  if (contacts.length === 0) return NextResponse.json([]);
+
+  // Fetch all unread messages for these contacts in a single query,
+  // then count in memory respecting each contact's lastReadAt — avoids N+1.
+  const unreadMessages = await prisma.message.findMany({
+    where: { contactId: { in: contacts.map((c) => c.id) }, fromMe: false },
+    select: { contactId: true, timestamp: true },
+  });
+
+  const contactMap = new Map(contacts.map((c) => [c.id, c]));
+  const unreadMap = new Map<string, number>();
+  for (const msg of unreadMessages) {
+    const c = contactMap.get(msg.contactId);
+    if (!c) continue;
+    if (!c.lastReadAt || msg.timestamp > c.lastReadAt) {
+      unreadMap.set(msg.contactId, (unreadMap.get(msg.contactId) ?? 0) + 1);
+    }
+  }
+
+  const withUnread = contacts.map((c) => ({ ...c, unreadCount: unreadMap.get(c.id) ?? 0 }));
 
   // Apply read/unread filter after computing counts
   const filtered =

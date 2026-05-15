@@ -1,14 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getAuthUser } from "@/lib/auth";
+import { getAuthUser, isSuperAdmin } from "@/lib/auth";
 
 export async function GET(req: NextRequest) {
   const user = await getAuthUser();
   if (!user) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
 
   const status = req.nextUrl.searchParams.get("status");
+  const ownerFilter = isSuperAdmin(user) ? {} : { createdById: user.userId };
   const campaigns = await prisma.campaign.findMany({
-    where: status ? { status } : {},
+    where: { ...ownerFilter, ...(status ? { status } : {}) },
     include: {
       template: { select: { id: true, name: true, mediaType: true } },
       instance: { select: { id: true, label: true, instanceName: true, status: true } },
@@ -35,9 +36,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const user = await getAuthUser();
-  if (!user || !["superadmin", "admin"].includes(user.role)) {
-    return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
-  }
+  if (!user) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
 
   const body = await req.json();
   const {
@@ -57,43 +56,52 @@ export async function POST(req: NextRequest) {
   // Groups are required only when NOT saving as a bare draft
   if (!isDraft && !groupIds?.length) return NextResponse.json({ error: "Selecione ao menos um grupo" }, { status: 400 });
 
+  // Non-superadmin can only use instances they own
+  if (!isSuperAdmin(user)) {
+    const instance = await prisma.whatsAppInstance.findUnique({ where: { id: instanceId }, select: { ownerId: true } });
+    if (!instance || instance.ownerId !== user.userId) {
+      return NextResponse.json({ error: "Instância não pertence a você" }, { status: 403 });
+    }
+  }
+
   const resolvedSendType = sendType || "scheduled";
   const resolvedStartAt = resolvedSendType === "immediate" ? new Date() : (startAt ? new Date(startAt) : new Date());
 
   let campaign;
   try {
     campaign = await prisma.campaign.create({
-    data: {
-      name: name.trim(),
-      description: description?.trim() || null,
-      channel: channel || "whatsapp",
-      sendType: resolvedSendType,
-      templateId,
-      instanceId,
-      variableValues: JSON.stringify(variableValues || {}),
-      startAt: resolvedStartAt,
-      repeatType: repeatType || "none",
-      repeatEndAt: repeatEndAt ? new Date(repeatEndAt) : null,
-      cadenceMinSeconds: Number(cadenceMinSeconds) || 10,
-      cadenceMaxSeconds: Number(cadenceMaxSeconds) || 30,
-      cadenceMaxPerHour: Number(cadenceMaxPerHour) || 60,
-      windowStart: windowStart || null,
-      windowEnd: windowEnd || null,
-      windowDays: JSON.stringify(windowDays || []),
-      batchSize: batchSize ? Number(batchSize) : null,
-      batchIntervalMinutes: batchIntervalMinutes ? Number(batchIntervalMinutes) : null,
-      repeatEveryX: repeatEveryX ? Number(repeatEveryX) : null,
-      repeatEveryUnit: repeatEveryUnit || null,
-      groups: groupIds?.length
-        ? { create: (groupIds as string[]).map((groupId, index) => ({ groupId, order: index })) }
-        : undefined,
-    },
-    include: {
-      template: { select: { id: true, name: true } },
-      instance: { select: { id: true, label: true, instanceName: true } },
-      groups: { include: { group: true } },
-    },
-  });
+      data: {
+        name: name.trim(),
+        description: description?.trim() || null,
+        channel: channel || "whatsapp",
+        sendType: resolvedSendType,
+        templateId,
+        instanceId,
+        createdById: user.userId,
+        variableValues: JSON.stringify(variableValues || {}),
+        startAt: resolvedStartAt,
+        repeatType: repeatType || "none",
+        repeatEndAt: repeatEndAt ? new Date(repeatEndAt) : null,
+        cadenceMinSeconds: Number(cadenceMinSeconds) || 10,
+        cadenceMaxSeconds: Number(cadenceMaxSeconds) || 30,
+        cadenceMaxPerHour: Number(cadenceMaxPerHour) || 60,
+        windowStart: windowStart || null,
+        windowEnd: windowEnd || null,
+        windowDays: JSON.stringify(windowDays || []),
+        batchSize: batchSize ? Number(batchSize) : null,
+        batchIntervalMinutes: batchIntervalMinutes ? Number(batchIntervalMinutes) : null,
+        repeatEveryX: repeatEveryX ? Number(repeatEveryX) : null,
+        repeatEveryUnit: repeatEveryUnit || null,
+        groups: groupIds?.length
+          ? { create: (groupIds as string[]).map((groupId, index) => ({ groupId, order: index })) }
+          : undefined,
+      },
+      include: {
+        template: { select: { id: true, name: true } },
+        instance: { select: { id: true, label: true, instanceName: true } },
+        groups: { include: { group: true } },
+      },
+    });
   } catch (err) {
     console.error("[POST /api/campaigns]", err);
     const msg = err instanceof Error ? err.message : "Erro interno ao criar campanha";

@@ -35,6 +35,7 @@ interface Instance {
 }
 
 interface RemoteInstance { name: string; status: string; phone?: string; }
+interface UserOption { id: string; name: string; username: string; role: string; active: boolean; }
 
 const INPUT_CLS = "w-full border rounded-lg px-3 py-2 text-sm outline-none transition-all focus:ring-2";
 
@@ -55,6 +56,21 @@ export default function ProvidersSettings() {
   const [editForm, setEditForm] = useState({ name: "", baseUrl: "", apiKey: "", type: "" });
   const [editSaving, setEditSaving] = useState(false);
   const [showTutorial, setShowTutorial] = useState(false);
+
+  // Delete instance modal
+  const [deleteModal, setDeleteModal] = useState<{ provider: Provider; instance: Instance } | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  // New instance naming modal
+  const [newInstanceModal, setNewInstanceModal] = useState<Provider | null>(null);
+  const [newInstanceLabel, setNewInstanceLabel] = useState("");
+
+  // Assign user modal
+  const [assignModal, setAssignModal] = useState<{ provider: Provider; instance: Instance } | null>(null);
+  const [users, setUsers] = useState<UserOption[]>([]);
+  const [loadingUsers, setLoadingUsers] = useState(false);
+  const [selectedUserId, setSelectedUserId] = useState<string>("");
+  const [assignSaving, setAssignSaving] = useState(false);
 
   const isAdmin = ["superadmin", "admin"].includes(currentUser?.role ?? "");
 
@@ -160,9 +176,18 @@ export default function ProvidersSettings() {
   }
 
   async function deleteProvider(id: string) {
-    if (!confirm("Excluir provedor e todas as instâncias?")) return;
-    await fetch(`/api/providers/${id}`, { method: "DELETE" });
-    loadProviders();
+    if (!confirm("Excluir provedor e todas as instâncias vinculadas?\n\n⚠️ Todas as conversas e mensagens de contatos vinculados a este provedor serão excluídas permanentemente.\n\nEsta ação não pode ser desfeita.")) return;
+    try {
+      const res = await fetch(`/api/providers/${id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const data = await safeJson(res);
+        alert(String(data.error || `Erro ${res.status} ao excluir provedor`));
+        return;
+      }
+      loadProviders();
+    } catch (err) {
+      alert(`Erro de conexão: ${err instanceof Error ? err.message : err}`);
+    }
   }
 
   async function toggleProvider(provider: Provider) {
@@ -183,13 +208,23 @@ export default function ProvidersSettings() {
     loadProviders();
   }
 
-  async function connectInstance(provider: Provider) {
+  function openNewInstance(provider: Provider) {
+    setNewInstanceLabel("");
+    setNewInstanceModal(provider);
+  }
+
+  async function confirmNewInstance() {
+    if (!newInstanceModal) return;
+    const provider = newInstanceModal;
+    const label = newInstanceLabel.trim() || provider.name;
+    setNewInstanceModal(null);
+    setNewInstanceLabel("");
     setConnecting(provider.id);
     try {
       const res = await fetch(`/api/providers/${provider.id}/connect`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ label: `${provider.name} · ${new Date().toLocaleTimeString("pt-BR")}` }),
+        body: JSON.stringify({ label }),
       });
       const data = await safeJson(res);
       if (!res.ok) {
@@ -281,12 +316,78 @@ export default function ProvidersSettings() {
 
   async function disconnectInstance(provider: Provider, instance: Instance) {
     if (!confirm(`Desconectar "${instance.label || instance.instanceName}"?`)) return;
-    await fetch(`/api/providers/${provider.id}/disconnect`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ instanceId: instance.id }),
-    });
-    loadProviders();
+    try {
+      const res = await fetch(`/api/providers/${provider.id}/disconnect`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ instanceId: instance.id }),
+      });
+      if (!res.ok) {
+        const data = await safeJson(res);
+        alert(String(data.error || `Erro ${res.status} ao desconectar`));
+        return;
+      }
+      loadProviders();
+    } catch (err) {
+      alert(`Erro de conexão: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+
+  function openDeleteInstance(provider: Provider, instance: Instance) {
+    setDeleteModal({ provider, instance });
+  }
+
+  async function confirmDeleteInstance(deleteFromProvider: boolean) {
+    if (!deleteModal) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/providers/${deleteModal.provider.id}/instances/${deleteModal.instance.id}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deleteFromProvider }),
+      });
+      if (!res.ok) {
+        const data = await safeJson(res);
+        alert(String(data.error || "Erro ao remover instância"));
+        return;
+      }
+      setDeleteModal(null);
+      loadProviders();
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  async function openAssignUser(provider: Provider, instance: Instance) {
+    setAssignModal({ provider, instance });
+    setSelectedUserId(instance.ownerId ?? "");
+    if (users.length === 0) {
+      setLoadingUsers(true);
+      const res = await fetch("/api/users");
+      if (res.ok) setUsers(await res.json());
+      setLoadingUsers(false);
+    }
+  }
+
+  async function confirmAssignUser() {
+    if (!assignModal) return;
+    setAssignSaving(true);
+    try {
+      const res = await fetch(`/api/providers/${assignModal.provider.id}/instances/${assignModal.instance.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ownerId: selectedUserId || null }),
+      });
+      if (!res.ok) {
+        const data = await safeJson(res);
+        alert(String(data.error || "Erro ao atribuir usuário"));
+        return;
+      }
+      setAssignModal(null);
+      loadProviders();
+    } finally {
+      setAssignSaving(false);
+    }
   }
 
   const selectedType = PROVIDER_TYPES.find((t) => t.value === form.type);
@@ -343,6 +444,227 @@ export default function ProvidersSettings() {
       </div>
 
       {showTutorial && <ProviderTutorial onClose={() => setShowTutorial(false)} />}
+
+      {/* ── New instance naming modal ── */}
+      {newInstanceModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden">
+            <div className="px-6 py-5 flex items-center justify-between" style={{ borderBottom: "1px solid var(--border)" }}>
+              <div>
+                <h3 className="text-base font-semibold" style={{ color: "var(--text-primary)" }}>Nova Instância</h3>
+                <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>{newInstanceModal.name}</p>
+              </div>
+              <button onClick={() => setNewInstanceModal(null)} className="text-gray-400 hover:text-gray-600">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-1.5" style={{ color: "var(--text-primary)" }}>
+                  Nome da instância
+                </label>
+                <input
+                  value={newInstanceLabel}
+                  onChange={(e) => setNewInstanceLabel(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && confirmNewInstance()}
+                  placeholder="Ex: João Silva | Vendas"
+                  autoFocus
+                  className="w-full border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2"
+                  style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+                />
+                <p className="text-xs mt-1.5" style={{ color: "var(--text-muted)" }}>
+                  Formato sugerido: <span className="font-medium">Nome do usuário | Nome personalizado</span>
+                  <br />Exemplo: <span className="font-mono">Maria | Suporte</span>, <span className="font-mono">Carlos | Vendas</span>
+                </p>
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={confirmNewInstance}
+                  className="flex-1 text-white py-2.5 rounded-xl text-sm font-medium"
+                  style={{ backgroundColor: "var(--primary)" }}
+                >
+                  Criar e Conectar
+                </button>
+                <button
+                  onClick={() => setNewInstanceModal(null)}
+                  className="flex-1 py-2.5 rounded-xl text-sm border"
+                  style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Delete instance modal ── */}
+      {deleteModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
+            <div className="px-6 py-5 flex items-center gap-3" style={{ borderBottom: "1px solid var(--border)" }}>
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: "color-mix(in srgb, var(--danger) 12%, transparent)" }}>
+                <svg className="w-5 h-5" style={{ color: "var(--danger)" }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="text-base font-semibold" style={{ color: "var(--text-primary)" }}>Remover Instância</h3>
+                <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
+                  {deleteModal.instance.label || deleteModal.instance.instanceName}
+                </p>
+              </div>
+            </div>
+            <div className="p-6 space-y-3">
+              <div className="flex items-start gap-2.5 px-3 py-3 rounded-xl" style={{ backgroundColor: "color-mix(in srgb, var(--warning) 12%, transparent)", border: "1px solid color-mix(in srgb, var(--warning) 30%, transparent)" }}>
+                <svg className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: "var(--warning)" }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                <p className="text-xs" style={{ color: "var(--warning)" }}>
+                  <span className="font-semibold">Atenção:</span> ao remover esta instância, todas as conversas e mensagens vinculadas a ela serão excluídas permanentemente.
+                </p>
+              </div>
+              <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+                Escolha como deseja remover esta instância:
+              </p>
+              <button
+                onClick={() => confirmDeleteInstance(false)}
+                disabled={deleting}
+                className="w-full flex items-start gap-3 px-4 py-4 rounded-xl border-2 text-left transition-all disabled:opacity-40"
+                style={{ borderColor: "var(--border)", backgroundColor: "var(--card-bg)" }}
+                onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--warning)"; e.currentTarget.style.backgroundColor = "color-mix(in srgb, var(--warning) 8%, transparent)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.backgroundColor = "var(--card-bg)"; }}
+              >
+                <span className="text-xl leading-none mt-0.5">🗂️</span>
+                <div>
+                  <p className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Apenas do sistema</p>
+                  <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>Remove do MoviChat mas mantém a instância no servidor {deleteModal.provider.type === "evolution" ? "Evolution" : deleteModal.provider.name}.</p>
+                </div>
+              </button>
+              <button
+                onClick={() => confirmDeleteInstance(true)}
+                disabled={deleting}
+                className="w-full flex items-start gap-3 px-4 py-4 rounded-xl border-2 text-left transition-all disabled:opacity-40"
+                style={{ borderColor: "var(--border)", backgroundColor: "var(--card-bg)" }}
+                onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--danger)"; e.currentTarget.style.backgroundColor = "color-mix(in srgb, var(--danger) 8%, transparent)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.backgroundColor = "var(--card-bg)"; }}
+              >
+                <span className="text-xl leading-none mt-0.5">🗑️</span>
+                <div>
+                  <p className="text-sm font-semibold" style={{ color: "var(--danger)" }}>Remover completamente</p>
+                  <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>Remove do MoviChat e também exclui a instância no servidor {deleteModal.provider.type === "evolution" ? "Evolution" : deleteModal.provider.name}. Esta ação não pode ser desfeita.</p>
+                </div>
+              </button>
+              <button
+                onClick={() => setDeleteModal(null)}
+                disabled={deleting}
+                className="w-full py-2.5 rounded-xl text-sm border transition-colors disabled:opacity-40"
+                style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
+              >
+                Cancelar
+              </button>
+              {deleting && (
+                <div className="flex items-center justify-center gap-2 py-1">
+                  <div className="w-4 h-4 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: "var(--danger)" }} />
+                  <span className="text-xs" style={{ color: "var(--text-muted)" }}>Removendo...</span>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Assign user modal ── */}
+      {assignModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
+            <div className="px-6 py-5 flex items-center justify-between" style={{ borderBottom: "1px solid var(--border)" }}>
+              <div>
+                <h3 className="text-base font-semibold" style={{ color: "var(--text-primary)" }}>Vincular Usuário</h3>
+                <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
+                  {assignModal.instance.label || assignModal.instance.instanceName}
+                </p>
+              </div>
+              <button onClick={() => setAssignModal(null)} className="text-gray-400 hover:text-gray-600">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+                Selecione o usuário responsável por esta instância. Apenas este usuário (além de admins) terá acesso a ela.
+              </p>
+              {loadingUsers ? (
+                <div className="flex items-center justify-center py-6">
+                  <div className="w-5 h-5 border-4 rounded-full animate-spin" style={{ borderColor: "var(--primary)", borderTopColor: "transparent" }} />
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                  {/* Unassigned option */}
+                  <label
+                    className="flex items-center gap-3 px-3 py-2.5 rounded-xl cursor-pointer transition-colors"
+                    style={{
+                      backgroundColor: selectedUserId === "" ? "var(--primary-light)" : "transparent",
+                      border: `1px solid ${selectedUserId === "" ? "var(--primary)" : "var(--border)"}`,
+                    }}
+                  >
+                    <input
+                      type="radio"
+                      name="assign-user"
+                      checked={selectedUserId === ""}
+                      onChange={() => setSelectedUserId("")}
+                      style={{ accentColor: "var(--primary)" }}
+                    />
+                    <div>
+                      <p className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>Sem vínculo</p>
+                      <p className="text-xs" style={{ color: "var(--text-muted)" }}>Todos os admins terão acesso</p>
+                    </div>
+                  </label>
+                  {users.filter((u) => u.active !== false).map((u) => (
+                    <label
+                      key={u.id}
+                      className="flex items-center gap-3 px-3 py-2.5 rounded-xl cursor-pointer transition-colors"
+                      style={{
+                        backgroundColor: selectedUserId === u.id ? "var(--primary-light)" : "transparent",
+                        border: `1px solid ${selectedUserId === u.id ? "var(--primary)" : "var(--border)"}`,
+                      }}
+                    >
+                      <input
+                        type="radio"
+                        name="assign-user"
+                        checked={selectedUserId === u.id}
+                        onChange={() => setSelectedUserId(u.id)}
+                        style={{ accentColor: "var(--primary)" }}
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate" style={{ color: "var(--text-primary)" }}>{u.name}</p>
+                        <p className="text-xs" style={{ color: "var(--text-muted)" }}>@{u.username} · {u.role}</p>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              )}
+              <div className="flex gap-3 pt-1">
+                <button
+                  onClick={confirmAssignUser}
+                  disabled={assignSaving || loadingUsers}
+                  className="flex-1 text-white py-2.5 rounded-xl text-sm font-medium disabled:opacity-60"
+                  style={{ backgroundColor: "var(--primary)" }}
+                >
+                  {assignSaving ? "Salvando..." : "Confirmar Vínculo"}
+                </button>
+                <button
+                  onClick={() => setAssignModal(null)}
+                  disabled={assignSaving}
+                  className="flex-1 py-2.5 rounded-xl text-sm border"
+                  style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Webhook info */}
       <div className="rounded-xl p-4" style={{ backgroundColor: "var(--info-light)", border: "1px solid color-mix(in srgb, var(--info) 30%, transparent)" }}>
@@ -593,8 +915,10 @@ export default function ProvidersSettings() {
               remote={remoteInstances[provider.id]}
               importingState={importing[provider.id]}
               importMsg={importMsg[provider.id]}
-              onConnect={() => connectInstance(provider)}
+              onConnect={() => openNewInstance(provider)}
               onDisconnect={(inst) => disconnectInstance(provider, inst)}
+              onDeleteInstance={(inst) => openDeleteInstance(provider, inst)}
+              onAssignUser={(inst) => openAssignUser(provider, inst)}
               onDelete={() => deleteProvider(provider.id)}
               onToggle={() => toggleProvider(provider)}
               onSetDefault={() => setDefault(provider.id)}
@@ -626,7 +950,7 @@ export default function ProvidersSettings() {
   );
 }
 
-function ProviderCard({ provider, currentUser, isAdmin, connecting, ping, remote, importingState, importMsg, onConnect, onDisconnect, onDelete, onToggle, onSetDefault, onStartPolling, onPing, onLoadRemote, onImport, onEdit, onToggleConversations }: {
+function ProviderCard({ provider, currentUser, isAdmin, connecting, ping, remote, importingState, importMsg, onConnect, onDisconnect, onDeleteInstance, onAssignUser, onDelete, onToggle, onSetDefault, onStartPolling, onPing, onLoadRemote, onImport, onEdit, onToggleConversations }: {
   provider: Provider;
   currentUser: { userId: string; role: string } | null;
   isAdmin: boolean;
@@ -637,6 +961,8 @@ function ProviderCard({ provider, currentUser, isAdmin, connecting, ping, remote
   importMsg?: string;
   onConnect: () => void;
   onDisconnect: (inst: Instance) => void;
+  onDeleteInstance: (inst: Instance) => void;
+  onAssignUser: (inst: Instance) => void;
   onDelete: () => void;
   onToggle: () => void;
   onSetDefault: () => void;
@@ -893,7 +1219,10 @@ function ProviderCard({ provider, currentUser, isAdmin, connecting, ping, remote
               key={inst.id}
               instance={{ ...inst, providerId: provider.id }}
               showOwner={isSuperAdmin}
+              isAdmin={isAdmin}
               onDisconnect={() => onDisconnect(inst)}
+              onDeleteInstance={() => onDeleteInstance(inst)}
+              onAssignUser={() => onAssignUser(inst)}
               onStartPolling={() => onStartPolling(inst.id)}
               onToggleConversations={() => onToggleConversations(inst)}
             />
@@ -904,10 +1233,13 @@ function ProviderCard({ provider, currentUser, isAdmin, connecting, ping, remote
   );
 }
 
-function InstanceRow({ instance, showOwner, onDisconnect, onStartPolling, onToggleConversations }: {
+function InstanceRow({ instance, showOwner, isAdmin, onDisconnect, onDeleteInstance, onAssignUser, onStartPolling, onToggleConversations }: {
   instance: Instance;
   showOwner?: boolean;
+  isAdmin?: boolean;
   onDisconnect: () => void;
+  onDeleteInstance: () => void;
+  onAssignUser: () => void;
   onStartPolling: () => void;
   onToggleConversations: () => void;
 }) {
@@ -1004,6 +1336,21 @@ function InstanceRow({ instance, showOwner, onDisconnect, onStartPolling, onTogg
               {showQr ? "Fechar QR" : "Ver QR Code"}
             </button>
           )}
+          {isAdmin && (
+            <button
+              onClick={onAssignUser}
+              className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border transition-colors"
+              title={instance.ownerName ? `Vinculado a ${instance.ownerName}` : "Vincular usuário"}
+              style={instance.ownerName
+                ? { borderColor: "var(--primary)", color: "var(--primary)", backgroundColor: "var(--primary-light)" }
+                : { borderColor: "var(--border)", color: "var(--text-muted)", backgroundColor: "transparent" }}
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+              </svg>
+              {instance.ownerName ?? "Vincular"}
+            </button>
+          )}
           {instance.status !== "disconnected" && (
             <button
               onClick={onDisconnect}
@@ -1011,6 +1358,18 @@ function InstanceRow({ instance, showOwner, onDisconnect, onStartPolling, onTogg
               style={{ borderColor: "var(--danger-light)", color: "var(--danger)", backgroundColor: "transparent" }}
             >
               Desconectar
+            </button>
+          )}
+          {isAdmin && instance.status !== "connected" && (
+            <button
+              onClick={onDeleteInstance}
+              className="p-1.5 rounded-lg transition-colors"
+              style={{ color: "var(--danger)" }}
+              title="Remover instância"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
             </button>
           )}
         </div>

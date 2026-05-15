@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getAuthUser } from "@/lib/auth";
+import { getAuthUser, isSuperAdmin } from "@/lib/auth";
 
 function extractVariables(body: string): string[] {
   const matches = body.match(/\{\{(\w+)\}\}/g) || [];
@@ -11,15 +11,17 @@ export async function GET() {
   const user = await getAuthUser();
   if (!user) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
 
-  const templates = await prisma.messageTemplate.findMany({ orderBy: { updatedAt: "desc" } });
+  const ownerFilter = isSuperAdmin(user) ? {} : { createdById: user.userId };
+  const templates = await prisma.messageTemplate.findMany({
+    where: ownerFilter,
+    orderBy: { updatedAt: "desc" },
+  });
   return NextResponse.json(templates);
 }
 
 export async function POST(req: NextRequest) {
   const user = await getAuthUser();
-  if (!user || !["superadmin", "admin"].includes(user.role)) {
-    return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
-  }
+  if (!user) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
 
   const { name, body, mediaType, mediaUrl, mediaCaption } = await req.json();
   if (!name?.trim() || !body?.trim()) {
@@ -35,6 +37,7 @@ export async function POST(req: NextRequest) {
       mediaType: mediaType || null,
       mediaUrl: mediaUrl?.trim() || null,
       mediaCaption: mediaCaption?.trim() || null,
+      createdById: user.userId,
     },
   });
 

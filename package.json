@@ -1,10 +1,10 @@
 {
   "name": "movichat",
-  "version": "0.1.0",
+  "version": "1.4.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "prisma generate && prisma db push && next build",
+    "build": "prisma generate && node scripts/migrate-turso.mjs && next build",
     "postinstall": "prisma generate",
     "start": "next start",
     "lint": "eslint"

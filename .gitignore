@@ -49,3 +49,6 @@ next-env.d.ts
 *.db-shm
 
 .vercel
+
+.vercel
+.env*.local

@@ -24,6 +24,13 @@ interface Group {
   participantCount: number;
 }
 
+interface DispatchGroup {
+  id: string;
+  name: string;
+  description: string | null;
+  items: { groupId: string; group: { id: string; name: string } }[];
+}
+
 interface CampaignFormProps {
   onClose: () => void;
   onSaved: () => void;
@@ -126,6 +133,10 @@ export default function CampaignForm({ onClose, onSaved, editing }: CampaignForm
   const [instances, setInstances] = useState<Instance[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
   const [loadingGroups, setLoadingGroups] = useState(false);
+  const [dispatchGroups, setDispatchGroups] = useState<DispatchGroup[]>([]);
+  const [applyingDispatchGroup, setApplyingDispatchGroup] = useState(false);
+  // Groups added from dispatch groups that belong to other instances (not visible in main list)
+  const [extraGroups, setExtraGroups] = useState<{ id: string; name: string }[]>([]);
 
   useEffect(() => {
     fetch("/api/campaigns/templates").then((r) => r.ok ? r.json() : []).then(setTemplates);
@@ -138,6 +149,9 @@ export default function CampaignForm({ onClose, onSaved, editing }: CampaignForm
       }
       setInstances(all);
     });
+    fetch("/api/campaigns/dispatch-groups")
+      .then((r) => r.ok ? r.json() : { dispatchGroups: [] })
+      .then((d) => setDispatchGroups(d.dispatchGroups || []));
   }, []);
 
   useEffect(() => {
@@ -175,6 +189,34 @@ export default function CampaignForm({ onClose, onSaved, editing }: CampaignForm
   function toggleAll() {
     if (selectedGroupIds.length === filteredGroups.length) setSelectedGroupIds([]);
     else setSelectedGroupIds(filteredGroups.map((g) => g.id));
+  }
+
+  async function applyDispatchGroup(dgId: string) {
+    if (!dgId) return;
+    setApplyingDispatchGroup(true);
+    try {
+      const res = await fetch(`/api/campaigns/dispatch-groups/${dgId}`);
+      if (!res.ok) return;
+      const dg: DispatchGroup & { items: { groupId: string; group: { id: string; name: string } }[] } = await res.json();
+      const currentGroupIds = new Set(groups.map((g) => g.id));
+      const newExtra: { id: string; name: string }[] = [];
+      const allGroupIds: string[] = [];
+      for (const item of dg.items) {
+        allGroupIds.push(item.groupId);
+        if (!currentGroupIds.has(item.groupId)) {
+          newExtra.push({ id: item.groupId, name: item.group.name });
+        }
+      }
+      setSelectedGroupIds((prev) => [...new Set([...prev, ...allGroupIds])]);
+      if (newExtra.length > 0) {
+        setExtraGroups((prev) => {
+          const existing = new Set(prev.map((g) => g.id));
+          return [...prev, ...newExtra.filter((g) => !existing.has(g.id))];
+        });
+      }
+    } finally {
+      setApplyingDispatchGroup(false);
+    }
   }
 
   function toggleDay(day: number) {
@@ -435,6 +477,35 @@ export default function CampaignForm({ onClose, onSaved, editing }: CampaignForm
                 </span>
               </div>
 
+              {/* Dispatch group quick-load */}
+              {dispatchGroups.length > 0 && (
+                <div
+                  className="flex items-center gap-2 px-3 py-2.5 rounded-xl"
+                  style={{ backgroundColor: "var(--primary-light)", border: "1px solid color-mix(in srgb, var(--primary) 25%, transparent)" }}
+                >
+                  <svg className="w-4 h-4 flex-shrink-0" style={{ color: "var(--primary)" }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                  </svg>
+                  <select
+                    defaultValue=""
+                    onChange={(e) => applyDispatchGroup(e.target.value)}
+                    disabled={applyingDispatchGroup}
+                    className="flex-1 text-sm bg-transparent outline-none"
+                    style={{ color: "var(--primary)" }}
+                  >
+                    <option value="" disabled>Carregar grupo de disparo...</option>
+                    {dispatchGroups.map((dg) => (
+                      <option key={dg.id} value={dg.id} style={{ color: "var(--text-primary)", backgroundColor: "var(--card-bg)" }}>
+                        {dg.name} ({dg.items.length} grupos)
+                      </option>
+                    ))}
+                  </select>
+                  {applyingDispatchGroup && (
+                    <div className="w-4 h-4 border-2 border-t-transparent rounded-full animate-spin flex-shrink-0" style={{ borderColor: "var(--primary)" }} />
+                  )}
+                </div>
+              )}
+
               <div className="flex items-center gap-3">
                 <div className="relative flex-1">
                   <svg className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2" style={{ color: "var(--text-muted)" }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -491,6 +562,40 @@ export default function CampaignForm({ onClose, onSaved, editing }: CampaignForm
                       </label>
                     );
                   })}
+                </div>
+              )}
+
+              {/* Groups from dispatch groups that belong to other instances */}
+              {extraGroups.filter((eg) => selectedGroupIds.includes(eg.id)).length > 0 && (
+                <div className="space-y-1">
+                  <p className="text-xs font-semibold pt-1" style={{ color: "var(--text-muted)" }}>
+                    GRUPOS DE OUTRAS INSTÂNCIAS (via grupo de disparo)
+                  </p>
+                  {extraGroups.filter((eg) => selectedGroupIds.includes(eg.id)).map((eg) => (
+                    <div
+                      key={eg.id}
+                      className="flex items-center gap-3 px-3 py-2.5 rounded-xl"
+                      style={{ backgroundColor: "var(--primary-light)", border: "1px solid var(--primary)" }}
+                    >
+                      <div className="w-4 h-4 rounded flex items-center justify-center flex-shrink-0" style={{ backgroundColor: "var(--primary)" }}>
+                        <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                        </svg>
+                      </div>
+                      <p className="text-sm font-medium flex-1 truncate" style={{ color: "var(--primary)" }}>{eg.name}</p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedGroupIds((prev) => prev.filter((id) => id !== eg.id));
+                          setExtraGroups((prev) => prev.filter((g) => g.id !== eg.id));
+                        }}
+                        className="text-xs px-2 py-0.5 rounded"
+                        style={{ color: "var(--primary)", backgroundColor: "color-mix(in srgb, var(--primary) 15%, transparent)" }}
+                      >
+                        Remover
+                      </button>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>

@@ -1,4 +1,4 @@
-import type { ProviderConfig, InstanceInfo, SendMessageResult, WhatsAppProvider, WebhookEvent, GroupInfo, ChatInfo } from "./types";
+import type { ProviderConfig, InstanceInfo, SendMessageResult, WhatsAppProvider, WebhookEvent, GroupInfo, ChatInfo, MessageInfo } from "./types";
 
 export class EvolutionApiProvider implements WhatsAppProvider {
   type = "evolution";
@@ -253,6 +253,121 @@ export class EvolutionApiProvider implements WhatsAppProvider {
     return { messageId: data.key?.id || "", status: "sent" };
   }
 
+  async updateWebhook(config: ProviderConfig, instanceName: string, webhookUrl: string): Promise<void> {
+    const base = config.baseUrl.replace(/\/$/, "");
+
+    // Evolution API v2 uses POST with nested { webhook: { ... } }
+    const bodyV2 = {
+      webhook: {
+        enabled: true,
+        url: webhookUrl,
+        webhookByEvents: true,
+        webhookBase64: true,
+        events: ["MESSAGES_UPSERT", "CONNECTION_UPDATE", "QRCODE_UPDATED"],
+      },
+    };
+
+    // Evolution API v1 uses PUT with flat body
+    const bodyV1 = {
+      enabled: true,
+      url: webhookUrl,
+      webhook_by_events: true,
+      webhook_base64: true,
+      events: ["MESSAGES_UPSERT", "CONNECTION_UPDATE", "QRCODE_UPDATED"],
+    };
+
+    const attempts = [
+      { url: `${base}/webhook/set/${instanceName}`, method: "POST", body: JSON.stringify(bodyV2) },
+      { url: `${base}/webhook/set/${instanceName}`, method: "PUT",  body: JSON.stringify(bodyV1) },
+      { url: `${base}/webhook/${instanceName}/set`, method: "POST", body: JSON.stringify(bodyV2) },
+      { url: `${base}/webhook/${instanceName}/set`, method: "PUT",  body: JSON.stringify(bodyV1) },
+    ];
+
+    for (const attempt of attempts) {
+      try {
+        const res = await fetch(attempt.url, {
+          method: attempt.method,
+          headers: this.headers(config.apiKey),
+          body: attempt.body,
+          signal: AbortSignal.timeout(10000),
+        });
+        if (res.ok) return;
+      } catch { /* try next */ }
+    }
+    throw new Error("Não foi possível atualizar o webhook em nenhum endpoint da Evolution API");
+  }
+
+  async fetchMessages(config: ProviderConfig, instanceName: string, phone: string, count = 50): Promise<MessageInfo[]> {
+    const base = config.baseUrl.replace(/\/$/, "");
+    const jid = `${phone}@s.whatsapp.net`;
+
+    // Try multiple endpoint patterns across Evolution versions
+    const attempts: Array<{ url: string; method: string; body?: string }> = [
+      {
+        url: `${base}/chat/findMessages/${instanceName}`,
+        method: "POST",
+        body: JSON.stringify({ where: { key: { remoteJid: jid } }, limit: count }),
+      },
+      {
+        url: `${base}/chat/${instanceName}/findMessages`,
+        method: "POST",
+        body: JSON.stringify({ where: { key: { remoteJid: jid } }, limit: count }),
+      },
+    ];
+
+    for (const attempt of attempts) {
+      try {
+        const res = await fetch(attempt.url, {
+          method: attempt.method,
+          headers: this.headers(config.apiKey),
+          body: attempt.body,
+          signal: AbortSignal.timeout(20000),
+        });
+        if (!res.ok) continue;
+        const data = await res.json();
+        const list: Record<string, unknown>[] = Array.isArray(data)
+          ? data
+          : Array.isArray(data?.messages) ? data.messages : [];
+
+        return list.map((m) => {
+          const key = m.key as Record<string, unknown> | undefined;
+          const msgContent = m.message as Record<string, unknown> | undefined;
+          const imgMsg  = msgContent?.imageMessage    as Record<string, unknown> | undefined;
+          const vidMsg  = msgContent?.videoMessage    as Record<string, unknown> | undefined;
+          const audMsg  = msgContent?.audioMessage    as Record<string, unknown> | undefined;
+          const docMsg  = msgContent?.documentMessage as Record<string, unknown> | undefined;
+
+          const body =
+            (msgContent?.conversation as string) ||
+            ((msgContent?.extendedTextMessage as Record<string, unknown>)?.text as string) ||
+            (imgMsg?.caption as string) || (vidMsg?.caption as string) ||
+            (docMsg?.caption as string) ||
+            (audMsg ? "🎵 Áudio" : null) ||
+            (imgMsg ? "🖼️ Imagem" : null) || (vidMsg ? "🎬 Vídeo" : null) ||
+            (docMsg ? "📄 Documento" : null) || "";
+
+          let mediaType: string | undefined;
+          let mediaBase64: string | undefined;
+          if (imgMsg)  { mediaType = "image";    mediaBase64 = imgMsg.base64  ? `data:${imgMsg.mimetype  || "image/jpeg"};base64,${imgMsg.base64}`  : undefined; }
+          if (vidMsg)  { mediaType = "video";    mediaBase64 = vidMsg.base64  ? `data:${vidMsg.mimetype  || "video/mp4"};base64,${vidMsg.base64}`    : undefined; }
+          if (audMsg)  { mediaType = "audio";    mediaBase64 = audMsg.base64  ? `data:${audMsg.mimetype  || "audio/ogg"};base64,${audMsg.base64}`    : undefined; }
+          if (docMsg)  { mediaType = "document"; mediaBase64 = docMsg.base64  ? `data:${docMsg.mimetype  || "application/octet-stream"};base64,${docMsg.base64}` : undefined; }
+
+          return {
+            waMessageId: String(key?.id || ""),
+            phone,
+            body,
+            fromMe: key?.fromMe === true,
+            timestamp: Number(m.messageTimestamp || 0),
+            mediaType,
+            mediaBase64,
+          } as MessageInfo;
+        }).filter(m => m.body);
+      } catch { /* try next */ }
+    }
+    return [];
+  }
+
   async deleteInstance(config: ProviderConfig, instanceName: string): Promise<void> {
     const base = config.baseUrl.replace(/\/$/, "");
     await fetch(`${base}/instance/delete/${instanceName}`, {
@@ -263,28 +378,51 @@ export class EvolutionApiProvider implements WhatsAppProvider {
 
   parseWebhookEvent(body: Record<string, unknown>): WebhookEvent | null {
     const event = body.event as string;
-    const instance = (body.instance || body.instanceName) as string;
+    // Evolution sends instance name in different fields depending on version
+    const instance = (body.instance || body.instanceName || body.sender) as string;
 
     if (!instance) return null;
 
     if (event === "messages.upsert" || event === "MESSAGES_UPSERT") {
       const data = body.data as Record<string, unknown>;
 
-      // Evolution v2 sends data as the message object directly;
-      // older/some versions wrap it in data.messages[]
-      const rawMsg: Record<string, unknown> =
-        (data?.key ? data : (data?.messages as Record<string, unknown>[])?.[0]) || {};
+      // Evolution may wrap in data.messages[] or send the message object directly
+      // Also handle array payloads from some Evolution versions
+      let rawMsg: Record<string, unknown> = {};
+      if (data?.key) {
+        rawMsg = data as Record<string, unknown>;
+      } else if (Array.isArray(data)) {
+        rawMsg = (data as Record<string, unknown>[])[0] || {};
+      } else if (Array.isArray((data as Record<string,unknown>)?.messages)) {
+        rawMsg = ((data as Record<string,unknown>).messages as Record<string,unknown>[])[0] || {};
+      } else if ((data as Record<string,unknown>)?.message) {
+        rawMsg = data as Record<string, unknown>;
+      }
 
       const key = rawMsg.key as Record<string, unknown>;
       if (!key) return null;
       if (key?.fromMe) return null; // ignore outgoing messages
 
-      const remoteJid = String(key?.remoteJid || "");
-      // Skip group messages (they end in @g.us)
-      if (remoteJid.includes("@g.us")) return null;
+      // Primary JID — may be @s.whatsapp.net, @lid (new addressing), or @c.us (legacy)
+      const remoteJid    = String(key?.remoteJid    || "");
+      // Fallback JID present in newer Evolution versions when @lid is used
+      const remoteJidAlt = String(key?.remoteJidAlt || "");
 
-      const phone = remoteJid.replace(/@.+/, "").replace(/:\d+$/, "").replace(/\D/g, "");
-      if (!phone) return null;
+      // Skip group messages
+      if (remoteJid.includes("@g.us") || remoteJidAlt.includes("@g.us")) return null;
+
+      // Extract phone: prefer @s.whatsapp.net or @c.us JID; fall back to @lid JID only if no alt
+      function extractPhone(jid: string): string {
+        return jid.replace(/@.+/, "").replace(/:\d+$/, "").replace(/\D/g, "");
+      }
+
+      // Use the non-@lid JID when possible since @lid is an internal WhatsApp identifier
+      const phoneJid = (remoteJidAlt && !remoteJidAlt.includes("@lid"))
+        ? remoteJidAlt
+        : remoteJid;
+
+      const phone = extractPhone(phoneJid);
+      if (!phone || phone.length < 7) return null;
 
       const pushName = String(rawMsg.pushName || "");
       const msgContent = (rawMsg.message || rawMsg.Messages) as Record<string, unknown>;

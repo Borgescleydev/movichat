@@ -5,11 +5,12 @@ import { useSearchParams, useRouter } from "next/navigation";
 import ProvidersSettings from "@/components/settings/ProvidersSettings";
 import AppearanceSettings from "@/components/settings/AppearanceSettings";
 import CronSettings from "@/components/settings/CronSettings";
+import SessionsSettings from "@/components/settings/SessionsSettings";
 
 // ─── Types ───────────────────────────────────────────────────
 interface Column { id: string; name: string; color: string; order: number; isDefault: boolean; }
 
-interface UserPerms { conversations?: boolean; campaigns?: boolean; contacts?: boolean; pipeline?: boolean; providers?: boolean; reports?: boolean; }
+interface UserPerms { conversations?: boolean; campaigns?: boolean; individual?: boolean; contacts?: boolean; pipeline?: boolean; providers?: boolean; reports?: boolean; }
 interface User {
   id: string; name: string; username: string; role: string; active: boolean;
   avatar?: string | null; permissions?: UserPerms;
@@ -22,15 +23,16 @@ interface UserResources {
 
 interface WhatsAppSession { id: string; status: string; qrCode?: string; phone?: string; }
 
-type Tab = "profile" | "pipeline" | "users" | "resources" | "providers" | "appearance" | "whatsapp" | "cron";
+type Tab = "profile" | "pipeline" | "users" | "resources" | "providers" | "appearance" | "whatsapp" | "cron" | "sessions";
 
 const PERM_GROUPS = [
-  { key: "conversations", label: "Conversas", icon: "💬", desc: "Acesso à área de conversas" },
-  { key: "campaigns",     label: "Campanhas",  icon: "📢", desc: "Criar e gerenciar campanhas" },
-  { key: "contacts",      label: "Contatos",   icon: "👥", desc: "Gerenciar contatos" },
-  { key: "pipeline",      label: "Pipeline",   icon: "📊", desc: "Visualizar e mover pipeline" },
-  { key: "providers",     label: "Provedores", icon: "🔌", desc: "Gerenciar instâncias WhatsApp" },
-  { key: "reports",       label: "Relatórios", icon: "📈", desc: "Visualizar dashboard e relatórios" },
+  { key: "conversations", label: "Conversas",          icon: "💬", desc: "Acesso à área de conversas" },
+  { key: "campaigns",     label: "Campanhas",           icon: "📢", desc: "Criar e gerenciar campanhas" },
+  { key: "individual",    label: "Disparo Individual",  icon: "👤", desc: "Criar e gerenciar disparos para contatos individuais" },
+  { key: "contacts",      label: "Contatos",            icon: "👥", desc: "Gerenciar contatos" },
+  { key: "pipeline",      label: "Pipeline",            icon: "📊", desc: "Visualizar e mover pipeline" },
+  { key: "providers",     label: "Provedores",          icon: "🔌", desc: "Gerenciar instâncias WhatsApp" },
+  { key: "reports",       label: "Relatórios",          icon: "📈", desc: "Visualizar dashboard e relatórios" },
 ] as const;
 
 const ROLE_LABELS: Record<string, string> = { superadmin: "Super Admin", admin: "Administrador", agent: "Agente" };
@@ -95,6 +97,7 @@ export default function SettingsClient({ userRole }: { userRole: string }) {
     { key: "appearance", label: "Aparência" },
     { key: "whatsapp",   label: "WhatsApp (legado)" },
     ...(isAdmin ? [{ key: "cron", label: "Cron Job" }] : []),
+    { key: "sessions", label: "Sessões" },
   ] as { key: Tab; label: string }[];
 
   return (
@@ -122,6 +125,7 @@ export default function SettingsClient({ userRole }: { userRole: string }) {
       {tab === "appearance" && <AppearanceSettings />}
       {tab === "whatsapp"   && <WhatsAppSettings />}
       {tab === "cron"       && isAdmin      && <CronSettings />}
+      {tab === "sessions"   && <SessionsSettings userRole={userRole} />}
     </div>
   );
 }

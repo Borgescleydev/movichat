@@ -1,11 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getProvider } from "@/lib/providers";
-import { notifySseClients } from "@/app/api/conversations/events/route";
+import { notifySseClients } from "@/lib/sse-store";
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
+
+    // Persist raw payload for debugging (last 3 payloads in SystemSettings)
+    try {
+      const raw = JSON.stringify(body).slice(0, 4000);
+      await prisma.systemSettings.upsert({
+        where: { id: "webhook_debug" },
+        create: { id: "webhook_debug", themeJson: raw },
+        update: { themeJson: raw },
+      });
+    } catch { /* non-critical */ }
 
     // Find which provider this webhook belongs to by trying all active providers
     const providers = await prisma.apiProvider.findMany({ where: { active: true } });
@@ -30,7 +40,6 @@ export async function POST(req: NextRequest) {
     if (!parsed || !matchedProvider) {
       // Fallback: legacy webhook format
       const { type, data } = body as { type?: string; data?: Record<string, unknown> };
-
       if (type === "message" && data) {
         await handleIncomingMessage(
           String(data.phone || ""),
@@ -38,23 +47,17 @@ export async function POST(req: NextRequest) {
           String(data.message || "")
         );
       }
-      if (type === "status" && data) {
-        await prisma.whatsAppSession.update({
-          where: { id: "default" },
-          data: {
-            status: String(data.status || "disconnected"),
-            qrCode: data.qrCode ? String(data.qrCode) : null,
-            phone: data.phone ? String(data.phone) : null,
-          },
-        });
-      }
       return NextResponse.json({ ok: true });
     }
 
-    // Find instance by name
-    const instance = await prisma.whatsAppInstance.findFirst({
-      where: { providerId: matchedProvider.id, instanceName: parsed.instanceName },
-    });
+    // Find instance by name — first scoped to matched provider, then globally
+    const instance =
+      await prisma.whatsAppInstance.findFirst({
+        where: { providerId: matchedProvider.id, instanceName: parsed.instanceName },
+      }) ??
+      await prisma.whatsAppInstance.findFirst({
+        where: { instanceName: parsed.instanceName },
+      });
 
     if (parsed.type === "message") {
       const { phone, name, message, waMessageId, mediaBase64, mediaType } = parsed.data;
@@ -98,6 +101,12 @@ async function handleIncomingMessage(phone: string, name: string, message: strin
   const cleanPhone = phone.replace(/\D/g, "");
   if (!cleanPhone || !message) return;
 
+  // Deduplicate: if we already stored this exact WhatsApp message, skip it
+  if (waMessageId) {
+    const existing = await prisma.message.findFirst({ where: { waMessageId } });
+    if (existing) return;
+  }
+
   let contact = await prisma.contact.findUnique({ where: { phone: cleanPhone } });
 
   if (!contact) {
@@ -117,12 +126,12 @@ async function handleIncomingMessage(phone: string, name: string, message: strin
       });
     }
   } else {
-    // Update name if we now have a real name, and link to instance if not already linked
     await prisma.contact.update({
       where: { id: contact.id },
       data: {
         ...(name && name !== cleanPhone && contact.name === `+${cleanPhone}` ? { name } : {}),
-        ...(instanceId ? { instanceId } : {}),
+        // Always associate to the instance this message arrived from
+        ...(instanceId && !contact.instanceId ? { instanceId } : {}),
         updatedAt: new Date(),
       },
     });
@@ -140,9 +149,6 @@ async function handleIncomingMessage(phone: string, name: string, message: strin
         ...(mediaType   ? { mediaType } : {}),
       },
     });
-    // Push real-time notification to connected clients
-    try {
-      notifySseClients({ type: "message", contactId: contact.id, messageId: msg.id });
-    } catch { /* SSE not critical */ }
+    notifySseClients({ type: "message", contactId: contact.id, messageId: msg.id });
   }
 }

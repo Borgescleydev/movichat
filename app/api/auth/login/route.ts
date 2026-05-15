@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { comparePassword, signToken, hashPassword } from "@/lib/auth";
+import { parseUserAgent, geolocateIp, getClientIp } from "@/lib/session-utils";
 
 export async function POST(req: NextRequest) {
   try {
@@ -42,7 +43,34 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Credenciais inválidas" }, { status: 401 });
     }
 
-    const token = signToken({ userId: user.id, username: user.username, role: user.role, name: user.name });
+    // Gather session metadata
+    const ip = getClientIp(req);
+    const ua = req.headers.get("user-agent") || "";
+    const { browser, os, deviceType } = parseUserAgent(ua);
+    const geo = await geolocateIp(ip);
+
+    // Create session record
+    const session = await prisma.userSession.create({
+      data: {
+        userId: user.id,
+        ipAddress: ip === "unknown" ? null : ip,
+        userAgent: ua || null,
+        browser,
+        os,
+        deviceType,
+        country: geo.country,
+        city: geo.city,
+        region: geo.region,
+      },
+    });
+
+    const token = signToken({
+      userId: user.id,
+      username: user.username,
+      role: user.role,
+      name: user.name,
+      jti: session.id,
+    });
 
     const response = NextResponse.json({ ok: true, user: { id: user.id, name: user.name, role: user.role } });
     response.cookies.set("auth-token", token, {
