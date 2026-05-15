@@ -266,9 +266,10 @@ model ManualDispatchLog {
 }
 
 model SystemSettings {
-  id        String   @id @default("default")
-  themeJson String   @default("{}")
-  updatedAt DateTime @updatedAt
+  id             String   @id @default("default")
+  themeJson      String   @default("{}")
+  faviconBase64  String?
+  updatedAt      DateTime @updatedAt
 }
 
 model UserSession {

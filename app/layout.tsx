@@ -28,7 +28,10 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <head><ThemeStyle /></head>
+      <head>
+        <ThemeStyle />
+        <link rel="icon" href="/api/favicon" type="image/x-icon" />
+      </head>
       <body className="min-h-full flex flex-col">{children}</body>
     </html>
   );

@@ -117,11 +117,20 @@ const migrations = [
     FOREIGN KEY (contactId) REFERENCES Contact(id) ON UPDATE CASCADE
   )`,
   `CREATE UNIQUE INDEX IF NOT EXISTS ContactCampaignDispatch_campaignId_contactId_runIndex_key ON ContactCampaignDispatch(campaignId, contactId, runIndex)`,
+  `ALTER TABLE SystemSettings ADD COLUMN faviconBase64 TEXT`,
 ];
 
 try {
   for (const sql of migrations) {
-    await client.execute(sql);
+    try {
+      await client.execute(sql);
+    } catch (err) {
+      // Ignore "duplicate column" errors from ALTER TABLE ADD COLUMN
+      if (err.message?.includes("duplicate column") || err.message?.includes("already exists")) {
+        continue;
+      }
+      throw err;
+    }
   }
   console.log("✓ Turso schema up to date");
 } catch (err) {

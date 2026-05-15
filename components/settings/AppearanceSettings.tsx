@@ -9,12 +9,16 @@ export default function AppearanceSettings() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [favicon, setFavicon] = useState<string | null>(null);
+  const [faviconSaving, setFaviconSaving] = useState(false);
+  const [faviconSaved, setFaviconSaved] = useState(false);
 
   useEffect(() => {
     fetch("/api/settings/appearance")
       .then((r) => r.json())
       .then((d) => {
         setTheme({ ...DEFAULT_THEME, ...d.theme });
+        setFavicon(d.faviconBase64 ?? null);
         setLoading(false);
       });
   }, []);
@@ -74,6 +78,44 @@ export default function AppearanceSettings() {
     setSaved(false);
   }
 
+  function handleFaviconFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const result = ev.target?.result as string;
+      setFavicon(result);
+      setFaviconSaved(false);
+    };
+    reader.readAsDataURL(file);
+  }
+
+  async function saveFavicon() {
+    setFaviconSaving(true);
+    await fetch("/api/settings/appearance", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ faviconBase64: favicon }),
+    });
+    setFaviconSaving(false);
+    setFaviconSaved(true);
+    // Update favicon in current tab
+    const link = document.querySelector<HTMLLinkElement>("link[rel='icon']");
+    if (link && favicon) link.href = favicon;
+  }
+
+  async function removeFavicon() {
+    setFavicon(null);
+    setFaviconSaved(false);
+    await fetch("/api/settings/appearance", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ faviconBase64: null }),
+    });
+    const link = document.querySelector<HTMLLinkElement>("link[rel='icon']");
+    if (link) link.href = "/api/favicon";
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-32">
@@ -111,6 +153,70 @@ export default function AppearanceSettings() {
               <><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>Salvo!</>
             ) : saving ? "Salvando..." : "Salvar Tema"}
           </button>
+        </div>
+      </div>
+
+      {/* Favicon */}
+      <div
+        className="p-4 rounded-xl border"
+        style={{ borderColor: "var(--border)", backgroundColor: "var(--card-bg)" }}
+      >
+        <h3 className="text-sm font-semibold mb-1" style={{ color: "var(--text-primary)" }}>Favicon</h3>
+        <p className="text-xs mb-4" style={{ color: "var(--text-secondary)" }}>
+          Ícone exibido na aba do navegador. Recomendado: PNG ou ICO, mínimo 32×32px.
+        </p>
+        <div className="flex items-center gap-4">
+          {/* Preview */}
+          <div
+            className="w-12 h-12 rounded-lg border flex items-center justify-center flex-shrink-0 overflow-hidden"
+            style={{ borderColor: "var(--border)", backgroundColor: "var(--page-bg)" }}
+          >
+            {favicon ? (
+              <img src={favicon} alt="Favicon" className="w-8 h-8 object-contain" />
+            ) : (
+              <svg className="w-6 h-6 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
+            )}
+          </div>
+
+          {/* Actions */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <label
+              className="text-sm px-4 py-2 rounded-lg border cursor-pointer transition-colors"
+              style={{ borderColor: "var(--border)", color: "var(--text-primary)", backgroundColor: "var(--page-bg)" }}
+            >
+              {favicon ? "Trocar imagem" : "Escolher imagem"}
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/gif,image/webp,image/x-icon,image/svg+xml"
+                onChange={handleFaviconFile}
+                className="hidden"
+              />
+            </label>
+
+            {favicon && (
+              <>
+                <button
+                  onClick={saveFavicon}
+                  disabled={faviconSaving}
+                  className="text-sm px-4 py-2 rounded-lg text-white font-medium transition-colors disabled:opacity-60 flex items-center gap-2"
+                  style={{ backgroundColor: faviconSaved ? "var(--success)" : "var(--primary)" }}
+                >
+                  {faviconSaved ? (
+                    <><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>Salvo!</>
+                  ) : faviconSaving ? "Salvando..." : "Salvar Favicon"}
+                </button>
+                <button
+                  onClick={removeFavicon}
+                  className="text-sm px-3 py-2 rounded-lg border transition-colors"
+                  style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
+                >
+                  Remover
+                </button>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
