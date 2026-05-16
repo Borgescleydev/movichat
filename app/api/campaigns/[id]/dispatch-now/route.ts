@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/auth";
 import { EvolutionApiProvider } from "@/lib/providers/evolution";
+import { addDays, addWeeks, addMonths, addHours } from "date-fns";
 
 function resolveTemplate(body: string, variableValues: Record<string, string>, groupName: string): string {
   return body.replace(/\{\{(\w+)\}\}/g, (_, v) => {
@@ -14,6 +15,28 @@ function resolveTemplate(body: string, variableValues: Record<string, string>, g
 
 function randomBetween(min: number, max: number) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+function calculateNextRunAt(
+  startAt: Date,
+  repeatType: string,
+  runCount: number,
+  repeatEveryX?: number | null,
+  repeatEveryUnit?: string | null
+): Date | null {
+  const multiplier = runCount + 1;
+  switch (repeatType) {
+    case "daily":   return addDays(startAt, multiplier);
+    case "weekly":  return addWeeks(startAt, multiplier);
+    case "monthly": return addMonths(startAt, multiplier);
+    case "custom": {
+      const x = repeatEveryX || 1;
+      const unit = repeatEveryUnit || "days";
+      if (unit === "hours") return addHours(startAt, x * multiplier);
+      return addDays(startAt, x * multiplier);
+    }
+    default: return null;
+  }
 }
 
 export async function POST(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -132,14 +155,71 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
     }
   }
 
-  // Finalise campaign status
+  // Finalise campaign status — schedule next recurrence run if applicable
   const remaining = await prisma.campaignDispatch.count({
     where: { campaignId: id, runIndex, status: { in: ["pending", "processing"] } },
   });
 
   if (remaining === 0) {
-    const finalStatus = processed === 0 && errors > 0 ? "error" : "completed";
-    await prisma.campaign.update({ where: { id }, data: { status: finalStatus } });
+    const hasRecurrence = campaign.repeatType !== "none";
+
+    if (!hasRecurrence) {
+      const finalStatus = processed === 0 && errors > 0 ? "error" : "completed";
+      await prisma.campaign.update({ where: { id }, data: { status: finalStatus } });
+    } else {
+      const nextRunAt = calculateNextRunAt(
+        campaign.startAt, campaign.repeatType, campaign.runCount,
+        campaign.repeatEveryX, campaign.repeatEveryUnit
+      );
+      const expired = campaign.repeatEndAt && nextRunAt && nextRunAt > campaign.repeatEndAt;
+
+      if (!nextRunAt || expired) {
+        await prisma.campaign.update({ where: { id }, data: { status: "completed" } });
+      } else {
+        const newRunIndex = campaign.runCount + 1;
+        const existingNextRun = await prisma.campaignDispatch.count({
+          where: { campaignId: id, runIndex: newRunIndex },
+        });
+
+        if (existingNextRun === 0) {
+          const nextStart = nextRunAt.getTime();
+          let cursor = nextStart;
+          const newDispatches: { campaignId: string; groupId: string; runIndex: number; scheduledFor: Date }[] = [];
+
+          if (campaign.sendType === "batch" && campaign.batchSize && campaign.batchIntervalMinutes) {
+            let batchStart = nextStart;
+            for (let i = 0; i < campaign.groups.length; i++) {
+              if (i > 0 && i % campaign.batchSize === 0) batchStart += campaign.batchIntervalMinutes * 60 * 1000;
+              newDispatches.push({ campaignId: id, groupId: campaign.groups[i].groupId, runIndex: newRunIndex, scheduledFor: new Date(batchStart) });
+            }
+          } else {
+            const hourBuckets: Record<number, number> = {};
+            for (let i = 0; i < campaign.groups.length; i++) {
+              if (i > 0) {
+                const delaySec = randomBetween(campaign.cadenceMinSeconds, campaign.cadenceMaxSeconds);
+                cursor += delaySec * 1000;
+                const hourKey = Math.floor(cursor / 3_600_000);
+                hourBuckets[hourKey] = (hourBuckets[hourKey] || 0) + 1;
+                if (hourBuckets[hourKey] > campaign.cadenceMaxPerHour) {
+                  cursor = (hourKey + 1) * 3_600_000;
+                  hourBuckets[hourKey + 1] = 1;
+                }
+              } else {
+                hourBuckets[Math.floor(cursor / 3_600_000)] = 1;
+              }
+              newDispatches.push({ campaignId: id, groupId: campaign.groups[i].groupId, runIndex: newRunIndex, scheduledFor: new Date(cursor) });
+            }
+          }
+
+          await prisma.campaignDispatch.createMany({ data: newDispatches });
+        }
+
+        await prisma.campaign.update({
+          where: { id },
+          data: { status: "scheduled", runCount: campaign.runCount + 1, nextRunAt },
+        });
+      }
+    }
   }
 
   return NextResponse.json({ processed, errors, remaining });

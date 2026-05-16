@@ -207,6 +207,25 @@ const MIGRATIONS = [
       '2026-05-14T12:00:00.000Z'
     )`,
   },
+  // --- Desabilitar conversas globalmente ---
+  {
+    name: "WhatsAppInstance_disable_conversations_global",
+    sql: `UPDATE "WhatsAppInstance" SET "conversationsEnabled" = 0`,
+  },
+  // --- Changelog v1.5.0 ---
+  {
+    name: "SystemChangelog_seed_v1_5_0",
+    sql: `INSERT OR IGNORE INTO "SystemChangelog" ("id","version","title","description","changes","deployedAt","createdAt","updatedAt") VALUES (
+      'changelog-v1-5-0',
+      'v1.5.0',
+      'Correção do sistema de disparo recorrente e desativação de conversas',
+      'Restauração do cron job de disparo automático, correção de bugs na ativação da recorrência de campanhas e desativação global do módulo de conversas.',
+      '[{"type":"fix","text":"Cron job restaurado no vercel.json — disparo recorrente agendado volta a executar automaticamente a cada minuto"},{"type":"fix","text":"Disparo recorrente agora usa o runIndex real dos dispatches ao verificar conclusão, evitando dessincronização com runCount"},{"type":"fix","text":"Botão Disparar Agora (dispatch-now) agora agenda corretamente a próxima recorrência em campanhas com repeatType != none, em vez de marcar como completed"},{"type":"fix","text":"Mesmo fix de recorrência aplicado ao dispatcher de contatos individuais (contact-dispatcher)"},{"type":"improvement","text":"Sistema de conversas desativado globalmente para todas as contas (conversationsEnabled = false em todas as instâncias)"}]',
+      CURRENT_TIMESTAMP,
+      CURRENT_TIMESTAMP,
+      CURRENT_TIMESTAMP
+    )`,
+  },
   {
     name: "SystemChangelog_seed_v1_2_0",
     sql: `INSERT OR IGNORE INTO "SystemChangelog" ("id","version","title","description","changes","deployedAt","createdAt","updatedAt") VALUES (

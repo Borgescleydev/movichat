@@ -111,7 +111,7 @@ model WhatsAppInstance {
   phone                String?
   qrCode               String?
   label                String?
-  conversationsEnabled Boolean  @default(true)
+  conversationsEnabled Boolean  @default(false)
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 

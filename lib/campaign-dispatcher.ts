@@ -155,24 +155,28 @@ export async function runCampaignDispatcher(): Promise<DispatchResult> {
 
   // Check campaign completion / schedule next run
   for (const campaignId of campaignIds) {
-    const campaign = duePending.find((d) => d.campaignId === campaignId)?.campaign;
+    const firstDispatch = duePending.find((d) => d.campaignId === campaignId);
+    const campaign = firstDispatch?.campaign;
     if (!campaign) continue;
 
+    // Use the actual runIndex from dispatches (more reliable than campaign.runCount if data drifts)
+    const currentRunIndex = firstDispatch.runIndex;
+
     const remaining = await prisma.campaignDispatch.count({
-      where: { campaignId, runIndex: campaign.runCount, status: { in: ["pending", "processing"] } },
+      where: { campaignId, runIndex: currentRunIndex, status: { in: ["pending", "processing"] } },
     });
 
     if (remaining === 0) {
       const hasRecurrence = campaign.repeatType !== "none";
 
       if (!hasRecurrence) {
-        const totalDispatches = await prisma.campaignDispatch.count({ where: { campaignId, runIndex: campaign.runCount } });
-        const failedDispatches = await prisma.campaignDispatch.count({ where: { campaignId, runIndex: campaign.runCount, status: "failed" } });
+        const totalDispatches = await prisma.campaignDispatch.count({ where: { campaignId, runIndex: currentRunIndex } });
+        const failedDispatches = await prisma.campaignDispatch.count({ where: { campaignId, runIndex: currentRunIndex, status: "failed" } });
         const finalStatus = totalDispatches > 0 && failedDispatches === totalDispatches ? "error" : "completed";
         await prisma.campaign.update({ where: { id: campaignId }, data: { status: finalStatus } });
       } else {
         const nextRunAt = calculateNextRunAt(
-          campaign.startAt, campaign.repeatType, campaign.runCount,
+          campaign.startAt, campaign.repeatType, currentRunIndex,
           campaign.repeatEveryX, campaign.repeatEveryUnit
         );
         const expired = campaign.repeatEndAt && nextRunAt && nextRunAt > campaign.repeatEndAt;
@@ -180,7 +184,7 @@ export async function runCampaignDispatcher(): Promise<DispatchResult> {
         if (!nextRunAt || expired) {
           await prisma.campaign.update({ where: { id: campaignId }, data: { status: "completed" } });
         } else {
-          const newRunIndex = campaign.runCount + 1;
+          const newRunIndex = currentRunIndex + 1;
           const existingNextRun = await prisma.campaignDispatch.count({ where: { campaignId, runIndex: newRunIndex } });
 
           if (existingNextRun === 0) {
@@ -224,7 +228,7 @@ export async function runCampaignDispatcher(): Promise<DispatchResult> {
 
           await prisma.campaign.update({
             where: { id: campaignId },
-            data: { status: "scheduled", runCount: campaign.runCount + 1, nextRunAt },
+            data: { status: "scheduled", runCount: newRunIndex, nextRunAt },
           });
         }
       }
