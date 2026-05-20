@@ -61,7 +61,6 @@ interface Message {
   _mediaLoading?: boolean;
 }
 interface Toast { id: string; contactId: string; contactName: string; phone: string; }
-type SseStatus = "connected" | "reconnecting" | "disconnected";
 type FilterStatus = "all" | "unread" | "read";
 type SortMode = "recent" | "oldest" | "az";
 
@@ -258,7 +257,6 @@ function ConversationsInner() {
   const [fetching,        setFetching]        = useState(false);
   const [syncing,         setSyncing]         = useState<string | null>(null);
   const [syncMsg,         setSyncMsg]         = useState<Record<string, string>>({});
-  const [sseStatus,       setSseStatus]       = useState<SseStatus>("disconnected");
 
   // ── Conversation list filters ──────────────────────────────────────────────
   const [search,        setSearch]        = useState("");
@@ -307,11 +305,9 @@ function ConversationsInner() {
   const newChatInputRef = useRef<HTMLInputElement>(null);
   const msgPollRef      = useRef<ReturnType<typeof setInterval> | null>(null);
   const ctxPollRef      = useRef<ReturnType<typeof setInterval> | null>(null);
-  const eventSourceRef  = useRef<EventSource | null>(null);
   const userScrolledRef = useRef(false);
-  const sseLastTimestamp = useRef(new Date().toISOString());
 
-  // Stable refs to avoid stale closures in SSE/poll callbacks
+  // Stable refs to avoid stale closures in poll callbacks
   const loadContactsRef = useRef<(silent?: boolean) => Promise<void>>(null!);
   const loadMessagesRef = useRef<(id: string, silent?: boolean) => Promise<void>>(null!);
   const selectedIdRef   = useRef<string | null>(null);
@@ -395,60 +391,6 @@ function ConversationsInner() {
       setMessages(prev => prev.map(m => m.id === msgId ? { ...m, _mediaLoading: false } : m));
     }
   }, []);
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // SECTION: SSE with auto-reconnect and ?since= support
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  /** Show a toast for a received message (when conversation is not open) */
-  function showToast(contactId: string) {
-    const contact = contactsRef.current.find(c => c.id === contactId);
-    const toastId = `t-${Date.now()}-${Math.random()}`;
-    setToasts(prev => [
-      ...prev.filter(t => t.contactId !== contactId), // deduplicate per contact
-      { id: toastId, contactId, contactName: contact?.name || "Novo contato", phone: contact?.phone || "" },
-    ].slice(-4)); // max 4 visible
-    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== toastId)), 6000);
-  }
-
-  const connectSSE = useCallback(() => {
-    if (eventSourceRef.current) eventSourceRef.current.close();
-    const es = new EventSource(`/api/conversations/events?since=${encodeURIComponent(sseLastTimestamp.current)}`);
-    eventSourceRef.current = es;
-    setSseStatus("connected");
-
-    es.onopen = () => setSseStatus("connected");
-
-    es.onerror = () => {
-      setSseStatus("reconnecting");
-      es.close();
-      setTimeout(() => connectSSE(), 3000);
-    };
-
-    es.onmessage = (e) => {
-      try {
-        const data = JSON.parse(e.data as string) as {
-          type: string; since?: string; contactId?: string; fromMe?: boolean;
-        };
-        // Track last-seen timestamp for reconnects
-        if (data.since) sseLastTimestamp.current = data.since;
-        if (data.type === "message" && data.contactId) {
-          loadContactsRef.current(true);
-          const curId = selectedIdRef.current;
-          if (curId && data.contactId === curId) {
-            loadMessagesRef.current(curId, true);
-          } else if (!data.fromMe) {
-            showToast(data.contactId);
-          }
-        }
-      } catch { /* ignore parse errors */ }
-    };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    connectSSE();
-    return () => eventSourceRef.current?.close();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ═══════════════════════════════════════════════════════════════════════════
   // SECTION: Message loading + polling + scroll
@@ -918,17 +860,6 @@ function ConversationsInner() {
                      enabledInstances.find(i => i.id === activeInstId)?.instanceName ||
                      "Conversas")}
               </span>
-              {/* SSE status dot */}
-              <div
-                title={sseStatus === "connected" ? "Tempo real ativo" : "Reconectando..."}
-                style={{
-                  width: 8, height: 8, borderRadius: "50%",
-                  backgroundColor:
-                    sseStatus === "connected"    ? "var(--success, #22c55e)" :
-                    sseStatus === "reconnecting" ? "#f59e0b" : "var(--text-muted)",
-                  transition: "background-color .4s",
-                }}
-              />
             </div>
             <div style={{ display: "flex", gap: 4 }}>
               {/* Nova Conversa */}
