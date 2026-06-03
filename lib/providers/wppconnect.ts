@@ -1,4 +1,4 @@
-import type { ProviderConfig, InstanceInfo, SendMessageResult, WhatsAppProvider, WebhookEvent, GroupInfo, ChatInfo } from "./types";
+import type { ProviderConfig, InstanceInfo, SendMessageResult, WhatsAppProvider, WebhookEvent, GroupInfo, ChatInfo, GroupParticipant } from "./types";
 
 /**
  * WPPConnect Server provider
@@ -161,6 +161,63 @@ export class WPPConnectProvider implements WhatsAppProvider {
           participantCount: Number((g.participants as unknown[])?.length || g.size || 0),
         };
       });
+  }
+
+  async fetchGroupParticipants(config: ProviderConfig, instanceName: string, groupJid: string): Promise<GroupParticipant[]> {
+    const attempts = [
+      this.url(config, instanceName, `group-members/${encodeURIComponent(groupJid)}`),
+      this.url(config, instanceName, "all-groups") + "?getAllParticipants=true",
+    ];
+
+    let lastError = "";
+    for (const url of attempts) {
+      try {
+        const res = await fetch(url, { headers: this.headers(), signal: AbortSignal.timeout(30000) });
+        if (!res.ok) { lastError = `HTTP ${res.status}`; continue; }
+        const data = await res.json();
+        const participants = this.extractParticipants(data, groupJid);
+        if (participants.length > 0) return participants;
+      } catch (e) {
+        lastError = e instanceof Error ? e.message : String(e);
+      }
+    }
+    throw new Error(`WPPConnect: nao foi possivel coletar contatos do grupo. Ultimo erro: ${lastError}`);
+  }
+
+  private extractParticipants(data: unknown, groupJid: string): GroupParticipant[] {
+    const response = (data as Record<string, unknown>)?.response;
+    let source: unknown = response || data;
+
+    if (Array.isArray(source)) {
+      const groups = source as Record<string, unknown>[];
+      const group = groups.find((g) => {
+        const id = (g.id as Record<string, unknown>)?._serialized || g.id;
+        return String(id || "") === groupJid;
+      });
+      if (group) source = group.participants;
+    }
+
+    if (!Array.isArray(source)) {
+      source = (source as Record<string, unknown> | undefined)?.participants;
+    }
+    if (!Array.isArray(source)) return [];
+
+    return source
+      .map((p) => {
+        const item = p as Record<string, unknown>;
+        const idValue = (item.id as Record<string, unknown>)?._serialized || item.id || item.phone || item.number;
+        const jid = String(idValue || "");
+        const phone = jid.replace(/@.+/, "").replace(/:\d+$/, "").replace(/\D/g, "");
+        if (!phone || phone.length < 7) return null;
+        return {
+          phone,
+          jid: jid.includes("@") ? jid : undefined,
+          name: String(item.name || item.pushname || item.pushName || item.shortName || phone),
+          isAdmin: Boolean(item.isAdmin || item.isSuperAdmin || item.admin),
+          raw: item,
+        } as GroupParticipant;
+      })
+      .filter((p): p is GroupParticipant => Boolean(p));
   }
 
   async sendGroupMessage(config: ProviderConfig, instanceName: string, groupJid: string, text: string): Promise<SendMessageResult> {

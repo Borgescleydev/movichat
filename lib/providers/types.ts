@@ -15,6 +15,14 @@ export interface GroupInfo {
   participantCount: number;
 }
 
+export interface GroupParticipant {
+  phone: string;
+  name?: string;
+  jid?: string;
+  isAdmin?: boolean;
+  raw?: Record<string, unknown>;
+}
+
 export interface ProviderConfig {
   baseUrl: string;
   apiKey: string;
@@ -52,6 +60,7 @@ export interface WhatsAppProvider {
   sendTextMessage(config: ProviderConfig, instanceName: string, phone: string, text: string): Promise<SendMessageResult>;
   fetchChats?(config: ProviderConfig, instanceName: string): Promise<ChatInfo[]>;
   fetchGroups?(config: ProviderConfig, instanceName: string): Promise<GroupInfo[]>;
+  fetchGroupParticipants?(config: ProviderConfig, instanceName: string, groupJid: string): Promise<GroupParticipant[]>;
   fetchMessages?(config: ProviderConfig, instanceName: string, phone: string, count?: number): Promise<MessageInfo[]>;
   updateWebhook?(config: ProviderConfig, instanceName: string, webhookUrl: string): Promise<void>;
   sendGroupMessage?(config: ProviderConfig, instanceName: string, groupJid: string, text: string): Promise<SendMessageResult>;

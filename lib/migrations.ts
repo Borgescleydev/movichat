@@ -114,6 +114,63 @@ const MIGRATIONS = [
       CONSTRAINT "ManualDispatchLog_instanceId_fkey" FOREIGN KEY ("instanceId") REFERENCES "WhatsAppInstance"("id") ON DELETE CASCADE ON UPDATE CASCADE
     )`,
   },
+  {
+    name: "ScheduledManualDispatch",
+    sql: `CREATE TABLE IF NOT EXISTS "ScheduledManualDispatch" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "instanceId" TEXT NOT NULL,
+      "message" TEXT NOT NULL,
+      "mediaType" TEXT,
+      "mediaUrl" TEXT,
+      "mediaCaption" TEXT,
+      "fileName" TEXT,
+      "groupIds" TEXT NOT NULL DEFAULT '[]',
+      "scheduledFor" DATETIME NOT NULL,
+      "status" TEXT NOT NULL DEFAULT 'scheduled',
+      "errorMessage" TEXT,
+      "createdById" TEXT,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL,
+      CONSTRAINT "ScheduledManualDispatch_instanceId_fkey" FOREIGN KEY ("instanceId") REFERENCES "WhatsAppInstance"("id") ON DELETE CASCADE ON UPDATE CASCADE,
+      CONSTRAINT "ScheduledManualDispatch_createdById_fkey" FOREIGN KEY ("createdById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE
+    )`,
+  },
+  {
+    name: "ContactGroup",
+    sql: `CREATE TABLE IF NOT EXISTS "ContactGroup" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "name" TEXT NOT NULL,
+      "description" TEXT,
+      "sourceGroupId" TEXT,
+      "sourceGroupName" TEXT,
+      "sourceGroupJid" TEXT,
+      "sourceInstanceId" TEXT,
+      "createdById" TEXT,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL,
+      CONSTRAINT "ContactGroup_sourceGroupId_fkey" FOREIGN KEY ("sourceGroupId") REFERENCES "WhatsAppGroup"("id") ON DELETE SET NULL ON UPDATE CASCADE,
+      CONSTRAINT "ContactGroup_sourceInstanceId_fkey" FOREIGN KEY ("sourceInstanceId") REFERENCES "WhatsAppInstance"("id") ON DELETE SET NULL ON UPDATE CASCADE,
+      CONSTRAINT "ContactGroup_createdById_fkey" FOREIGN KEY ("createdById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE
+    )`,
+  },
+  {
+    name: "ContactGroupItem",
+    sql: `CREATE TABLE IF NOT EXISTS "ContactGroupItem" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "contactGroupId" TEXT NOT NULL,
+      "contactId" TEXT NOT NULL,
+      "sourcePhone" TEXT,
+      "sourceName" TEXT,
+      "rawJson" TEXT,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT "ContactGroupItem_contactGroupId_fkey" FOREIGN KEY ("contactGroupId") REFERENCES "ContactGroup"("id") ON DELETE CASCADE ON UPDATE CASCADE,
+      CONSTRAINT "ContactGroupItem_contactId_fkey" FOREIGN KEY ("contactId") REFERENCES "Contact"("id") ON DELETE CASCADE ON UPDATE CASCADE
+    )`,
+  },
+  {
+    name: "ContactGroupItem_unique",
+    sql: `CREATE UNIQUE INDEX IF NOT EXISTS "ContactGroupItem_contactGroupId_contactId_key" ON "ContactGroupItem"("contactGroupId", "contactId")`,
+  },
   // --- ALTER TABLE columns (idempotent: error = already exists, safe to ignore) ---
   { name: "WhatsAppInstance_conversationsEnabled", sql: `ALTER TABLE "WhatsAppInstance" ADD COLUMN "conversationsEnabled" INTEGER NOT NULL DEFAULT 1` },
   { name: "Contact_instanceId",  sql: `ALTER TABLE "Contact" ADD COLUMN "instanceId" TEXT REFERENCES "WhatsAppInstance"("id") ON DELETE SET NULL ON UPDATE CASCADE` },
@@ -234,6 +291,19 @@ const MIGRATIONS = [
       'Agendamento de campanhas mais intuitivo',
       'Melhoria no fluxo de criação e agendamento de campanhas em grupo, reduzindo etapas manuais e deixando claro quando a campanha entra na fila.',
       '[{"type":"feature","text":"Novo modo Enviar agora na etapa de agendamento de campanhas"},{"type":"improvement","text":"Botão final de nova campanha agora cria e agenda automaticamente, mantendo Salvar rascunho como ação separada"},{"type":"improvement","text":"Atalhos rápidos para iniciar em 15 minutos, em 1 hora ou amanhã"},{"type":"improvement","text":"Resumo de agendamento mais claro com data, recorrência, janela ou lotes"},{"type":"fix","text":"Validação do agendamento não exige data no modo imediato e evita cálculo inválido de lotes"}]',
+      CURRENT_TIMESTAMP,
+      CURRENT_TIMESTAMP,
+      CURRENT_TIMESTAMP
+    )`,
+  },
+  {
+    name: "SystemChangelog_seed_v1_6_0",
+    sql: `INSERT OR IGNORE INTO "SystemChangelog" ("id","version","title","description","changes","deployedAt","createdAt","updatedAt") VALUES (
+      'changelog-v1-6-0',
+      'v1.6.0',
+      'Disparo manual agendado e grupos de contatos',
+      'Novo fluxo para agendar disparos manuais sem campanha, reutilizar grupos de disparo e coletar contatos de grupos WhatsApp.',
+      '[{"type":"feature","text":"Disparo manual agora permite aplicar Grupos de Disparo salvos"},{"type":"feature","text":"Disparo manual pode ser agendado sem vinculo com campanha"},{"type":"feature","text":"Coleta de contatos de grupos WhatsApp com importacao para a base de contatos"},{"type":"feature","text":"Grupos de contatos coletados ficam disponiveis nas campanhas individuais"},{"type":"feature","text":"Exportacao CSV dos grupos de contatos com dados de origem e dados disponiveis do contato"}]',
       CURRENT_TIMESTAMP,
       CURRENT_TIMESTAMP,
       CURRENT_TIMESTAMP

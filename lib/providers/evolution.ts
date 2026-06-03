@@ -1,4 +1,4 @@
-import type { ProviderConfig, InstanceInfo, SendMessageResult, WhatsAppProvider, WebhookEvent, GroupInfo, ChatInfo, MessageInfo } from "./types";
+import type { ProviderConfig, InstanceInfo, SendMessageResult, WhatsAppProvider, WebhookEvent, GroupInfo, ChatInfo, MessageInfo, GroupParticipant } from "./types";
 
 export class EvolutionApiProvider implements WhatsAppProvider {
   type = "evolution";
@@ -186,6 +186,68 @@ export class EvolutionApiProvider implements WhatsAppProvider {
       }
     }
     throw new Error(`Evolution API: não foi possível listar grupos. Último erro: ${lastError}`);
+  }
+
+  async fetchGroupParticipants(config: ProviderConfig, instanceName: string, groupJid: string): Promise<GroupParticipant[]> {
+    const base = config.baseUrl.replace(/\/$/, "");
+    const body = JSON.stringify({ groupJid });
+    const attempts: Array<{ url: string; method: "GET" | "POST"; body?: string }> = [
+      { url: `${base}/group/participants/${instanceName}?groupJid=${encodeURIComponent(groupJid)}`, method: "GET" },
+      { url: `${base}/group/participants/${instanceName}`, method: "POST", body },
+      { url: `${base}/group/findGroupInfos/${instanceName}?groupJid=${encodeURIComponent(groupJid)}`, method: "GET" },
+      { url: `${base}/group/findGroupInfos/${instanceName}`, method: "POST", body },
+      { url: `${base}/group/fetchAllGroups/${instanceName}?getParticipants=true`, method: "GET" },
+    ];
+
+    let lastError = "";
+    for (const attempt of attempts) {
+      try {
+        const res = await fetch(attempt.url, {
+          method: attempt.method,
+          headers: this.headers(config.apiKey),
+          body: attempt.body,
+          signal: AbortSignal.timeout(30000),
+        });
+        if (!res.ok) { lastError = `HTTP ${res.status}`; continue; }
+        const data = await res.json();
+        const participants = this.extractParticipants(data, groupJid);
+        if (participants.length > 0) return participants;
+      } catch (e) {
+        lastError = e instanceof Error ? e.message : String(e);
+      }
+    }
+    throw new Error(`Evolution API: nao foi possivel coletar contatos do grupo. Ultimo erro: ${lastError}`);
+  }
+
+  private extractParticipants(data: unknown, groupJid: string): GroupParticipant[] {
+    const record = data as Record<string, unknown>;
+    let source: unknown =
+      record?.participants ||
+      (record?.response as Record<string, unknown> | undefined)?.participants ||
+      (record?.groupMetadata as Record<string, unknown> | undefined)?.participants ||
+      (record?.data as Record<string, unknown> | undefined)?.participants;
+
+    if (!Array.isArray(source) && Array.isArray(data)) {
+      const group = (data as Record<string, unknown>[]).find((g) => String(g.id || g.groupJid || "") === groupJid);
+      source = group?.participants;
+    }
+    if (!Array.isArray(source)) return [];
+
+    return source
+      .map((p) => {
+        const item = p as Record<string, unknown>;
+        const jid = String(item.id || item.jid || item.phone || item.number || item.lid || "");
+        const phone = jid.replace(/@.+/, "").replace(/:\d+$/, "").replace(/\D/g, "");
+        if (!phone || phone.length < 7) return null;
+        return {
+          phone,
+          jid: jid.includes("@") ? jid : undefined,
+          name: String(item.name || item.pushName || item.notify || item.verifiedName || phone),
+          isAdmin: Boolean(item.admin || item.isAdmin || item.superAdmin),
+          raw: item,
+        } as GroupParticipant;
+      })
+      .filter((p): p is GroupParticipant => Boolean(p));
   }
 
   async sendGroupMessage(config: ProviderConfig, instanceName: string, groupJid: string, text: string): Promise<SendMessageResult> {

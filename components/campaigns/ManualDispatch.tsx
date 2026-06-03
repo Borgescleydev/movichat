@@ -4,6 +4,18 @@ import { useEffect, useState, useCallback, useRef } from "react";
 
 interface Instance { id: string; label: string | null; instanceName: string; status: string; }
 interface Group { id: string; name: string; groupJid: string; participantCount: number; }
+interface DispatchGroup {
+  id: string;
+  name: string;
+  items: { group: Group & { instance?: Instance } }[];
+}
+interface ContactGroup {
+  id: string;
+  name: string;
+  sourceGroupName: string | null;
+  sourceGroupJid: string | null;
+  _count?: { items: number };
+}
 interface Template { id: string; name: string; body: string; variables: string; mediaType: string | null; mediaUrl: string | null; mediaCaption: string | null; }
 interface DispatchResult { groupId: string; name: string; status: "sent" | "failed"; error?: string; }
 interface Campaign { id: string; name: string; status: string; sentCount: number; failedCount: number; pendingCount: number; totalGroups: number; }
@@ -30,6 +42,11 @@ export default function ManualDispatch() {
   const [groupSearch, setGroupSearch] = useState("");
   const [loadingInst, setLoadingInst] = useState(true);
   const [loadingGroups, setLoadingGroups] = useState(false);
+  const [dispatchGroups, setDispatchGroups] = useState<DispatchGroup[]>([]);
+  const [selectedDispatchGroupId, setSelectedDispatchGroupId] = useState("");
+  const [contactGroups, setContactGroups] = useState<ContactGroup[]>([]);
+  const [collectingContacts, setCollectingContacts] = useState(false);
+  const [collectMessage, setCollectMessage] = useState("");
 
   // Message
   const [message, setMessage] = useState("");
@@ -54,6 +71,8 @@ export default function ManualDispatch() {
   const [results, setResults] = useState<DispatchResult[] | null>(null);
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState("");
+  const [dispatchMode, setDispatchMode] = useState<"now" | "scheduled">("now");
+  const [scheduledFor, setScheduledFor] = useState("");
   const msgRef = useRef<HTMLTextAreaElement | null>(null);
 
   const loadInstances = useCallback(async () => {
@@ -92,7 +111,23 @@ export default function ManualDispatch() {
     if (res.ok) setCampaigns(await res.json());
   }, []);
 
-  useEffect(() => { loadInstances(); loadTemplates(); loadCampaigns(); }, []);
+  const loadDispatchGroups = useCallback(async () => {
+    const res = await fetch("/api/campaigns/dispatch-groups");
+    if (res.ok) {
+      const data = await res.json();
+      setDispatchGroups(data.dispatchGroups || []);
+    }
+  }, []);
+
+  const loadContactGroups = useCallback(async () => {
+    const res = await fetch("/api/contact-groups");
+    if (res.ok) {
+      const data = await res.json();
+      setContactGroups(data.contactGroups || []);
+    }
+  }, []);
+
+  useEffect(() => { loadInstances(); loadTemplates(); loadCampaigns(); loadDispatchGroups(); loadContactGroups(); }, []);
   useEffect(() => { loadGroups(); }, [selectedInstance]);
 
   // Apply template
@@ -147,13 +182,56 @@ export default function ManualDispatch() {
     else setSelectedGroups(new Set(filteredGroups.map((g) => g.id)));
   }
 
+  function applyDispatchGroup(id: string) {
+    setSelectedDispatchGroupId(id);
+    const dispatchGroup = dispatchGroups.find((dg) => dg.id === id);
+    if (!dispatchGroup) return;
+    const ids = dispatchGroup.items
+      .map((item) => item.group)
+      .filter((group) => !selectedInstance || group.instance?.id === selectedInstance || groups.some((g) => g.id === group.id))
+      .map((group) => group.id);
+    setSelectedGroups(new Set(ids));
+    if (ids.length === 0) {
+      setSendError("Esse grupo de disparo nao possui grupos da instancia selecionada.");
+    } else if (sendError) {
+      setSendError("");
+    }
+  }
+
+  async function collectSelectedGroupContacts() {
+    const groupId = Array.from(selectedGroups)[0];
+    if (!groupId) {
+      setCollectMessage("Selecione um grupo para coletar contatos.");
+      return;
+    }
+    setCollectingContacts(true);
+    setCollectMessage("");
+    try {
+      const group = groups.find((g) => g.id === groupId);
+      const res = await fetch(`/api/campaigns/groups/${groupId}/collect-contacts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: group ? `Contatos - ${group.name}` : undefined }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setCollectMessage(data.error || "Erro ao coletar contatos.");
+        return;
+      }
+      setCollectMessage(`${data.imported} contato(s) coletados em "${data.contactGroup.name}".`);
+      await loadContactGroups();
+    } finally {
+      setCollectingContacts(false);
+    }
+  }
+
   const inst = instances.find((i) => i.id === selectedInstance);
   const isConnected = inst?.status === "connected";
   const effectiveMedia = mediaInputMode === "file" ? mediaBase64 : mediaUrl;
   const hasMedia = mediaTab !== "none" && effectiveMedia.trim();
   const msgOverLimit = message.length > MESSAGE_LIMIT;
   const capOverLimit = mediaCaption.length > CAPTION_LIMIT;
-  const canSend = isConnected && selectedGroups.size > 0 && (message.trim() || hasMedia) && !msgOverLimit && !capOverLimit;
+  const canSend = isConnected && selectedGroups.size > 0 && (message.trim() || hasMedia) && !msgOverLimit && !capOverLimit && (dispatchMode === "now" || Boolean(scheduledFor));
 
   async function dispatch() {
     if (!isConnected || selectedGroups.size === 0) return;
@@ -171,9 +249,13 @@ export default function ManualDispatch() {
       setSendError("Digite uma mensagem ou selecione uma mídia antes de disparar.");
       return;
     }
+    if (dispatchMode === "scheduled" && !scheduledFor) {
+      setSendError("Informe a data e hora do agendamento.");
+      return;
+    }
     setSending(true); setResults(null);
     try {
-      const res = await fetch("/api/campaigns/manual-dispatch", {
+      const res = await fetch(dispatchMode === "scheduled" ? "/api/campaigns/manual-dispatch/scheduled" : "/api/campaigns/manual-dispatch", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -184,10 +266,14 @@ export default function ManualDispatch() {
           mediaUrl: hasMedia ? effectiveMedia : undefined,
           mediaCaption: hasMedia ? mediaCaption : undefined,
           fileName: mediaFile?.name,
+          scheduledFor: dispatchMode === "scheduled" ? new Date(scheduledFor).toISOString() : undefined,
         }),
       });
       const data = await res.json();
-      if (res.ok) setResults(data.results || []);
+      if (res.ok && dispatchMode === "scheduled") {
+        setResults(null);
+        alert(`Disparo agendado para ${new Date(data.scheduledFor).toLocaleString("pt-BR")}.`);
+      } else if (res.ok) setResults(data.results || []);
       else alert(data.error || "Erro ao disparar");
     } finally { setSending(false); }
   }
@@ -241,6 +327,26 @@ export default function ManualDispatch() {
                 </label>
               ))}
             </div>
+
+            {dispatchGroups.length > 0 && (
+              <div className="rounded-2xl p-4 space-y-3" style={{ border: "1px solid var(--border)", backgroundColor: "var(--card-bg)" }}>
+                <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>Grupo de disparo</p>
+                <select
+                  value={selectedDispatchGroupId}
+                  onChange={(e) => applyDispatchGroup(e.target.value)}
+                  className="w-full text-sm rounded-lg px-3 py-2 outline-none"
+                  style={{ border: "1px solid var(--border)", color: "var(--text-primary)", backgroundColor: "var(--page-bg)" }}
+                >
+                  <option value="">Selecionar grupos salvos...</option>
+                  {dispatchGroups.map((dg) => (
+                    <option key={dg.id} value={dg.id}>{dg.name} ({dg.items.length})</option>
+                  ))}
+                </select>
+                <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                  Aplica uma lista pronta de grupos ao disparo manual.
+                </p>
+              </div>
+            )}
 
             {/* Groups */}
             <div className="rounded-2xl overflow-hidden" style={{ border: "1px solid var(--border)", backgroundColor: "var(--card-bg)" }}>
@@ -312,7 +418,41 @@ export default function ManualDispatch() {
           </div>
 
           {/* ─── COL 2: Composer ─── */}
-          <div className="space-y-4">
+          <div className="rounded-2xl p-4 space-y-3 xl:col-start-1 xl:row-start-2" style={{ border: "1px solid var(--border)", backgroundColor: "var(--card-bg)" }}>
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>Contatos dos grupos</p>
+              {contactGroups.length > 0 && <span className="text-xs" style={{ color: "var(--primary)" }}>{contactGroups.length} lista(s)</span>}
+            </div>
+            <button
+              type="button"
+              onClick={collectSelectedGroupContacts}
+              disabled={collectingContacts || selectedGroups.size === 0}
+              className="w-full text-xs font-semibold rounded-lg px-3 py-2 disabled:opacity-40"
+              style={{ backgroundColor: "var(--primary-light)", color: "var(--primary)" }}
+            >
+              {collectingContacts ? "Coletando..." : "Coletar contatos do primeiro grupo selecionado"}
+            </button>
+            {collectMessage && <p className="text-xs" style={{ color: collectMessage.includes("coletado") ? "var(--success)" : "var(--danger)" }}>{collectMessage}</p>}
+            {contactGroups.length > 0 && (
+              <div className="space-y-2 max-h-44 overflow-y-auto pr-1">
+                {contactGroups.slice(0, 6).map((cg) => (
+                  <div key={cg.id} className="flex items-center gap-2 rounded-lg px-2 py-2" style={{ border: "1px solid var(--border)", backgroundColor: "var(--page-bg)" }}>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium truncate" style={{ color: "var(--text-primary)" }}>{cg.name}</p>
+                      <p className="text-xs truncate" style={{ color: "var(--text-muted)" }}>
+                        {cg._count?.items || 0} contatos{cg.sourceGroupName ? ` - ${cg.sourceGroupName}` : ""}
+                      </p>
+                    </div>
+                    <a href={`/api/contact-groups/${cg.id}/export`} className="text-xs px-2 py-1 rounded-md" style={{ backgroundColor: "var(--border)", color: "var(--text-secondary)" }}>
+                      CSV
+                    </a>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-4 xl:col-start-2 xl:row-start-1 xl:row-span-2">
             {/* Template selector */}
             {templates.length > 0 && (
               <div className="rounded-xl p-3 flex items-center gap-3" style={{ border: "1px solid var(--border)", backgroundColor: "var(--card-bg)" }}>
@@ -436,21 +576,49 @@ export default function ManualDispatch() {
               </div>
             )}
 
+            <div className="rounded-2xl p-4 space-y-3" style={{ border: "1px solid var(--border)", backgroundColor: "var(--card-bg)" }}>
+              <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>Quando enviar</p>
+              <div className="grid grid-cols-2 gap-2">
+                {([["now", "Enviar agora"], ["scheduled", "Agendar"]] as const).map(([mode, label]) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => setDispatchMode(mode)}
+                    className="text-sm font-semibold rounded-lg px-3 py-2"
+                    style={dispatchMode === mode
+                      ? { backgroundColor: "var(--primary)", color: "#fff" }
+                      : { backgroundColor: "var(--border)", color: "var(--text-secondary)" }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {dispatchMode === "scheduled" && (
+                <input
+                  type="datetime-local"
+                  value={scheduledFor}
+                  onChange={(e) => setScheduledFor(e.target.value)}
+                  className="w-full text-sm rounded-lg px-3 py-2 outline-none"
+                  style={{ border: "1px solid var(--border)", color: "var(--text-primary)", backgroundColor: "var(--page-bg)" }}
+                />
+              )}
+            </div>
+
             {/* Send button */}
-            <button onClick={dispatch} disabled={sending || !isConnected || selectedGroups.size === 0}
+            <button onClick={dispatch} disabled={sending || !canSend}
               className="w-full py-3.5 rounded-xl text-sm font-bold text-white transition-all disabled:opacity-40"
               style={{ backgroundColor: "var(--primary)" }}>
               {sending ? (
                 <span className="flex items-center justify-center gap-2">
                   <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  Disparando para {selectedGroups.size} grupo{selectedGroups.size !== 1 ? "s" : ""}...
+                  {dispatchMode === "scheduled" ? "Agendando..." : `Disparando para ${selectedGroups.size} grupo${selectedGroups.size !== 1 ? "s" : ""}...`}
                 </span>
               ) : (
                 <span className="flex items-center justify-center gap-2">
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
                   </svg>
-                  Disparar Agora {selectedGroups.size > 0 && `(${selectedGroups.size} grupo${selectedGroups.size !== 1 ? "s" : ""})`}
+                  {dispatchMode === "scheduled" ? "Agendar disparo" : "Disparar Agora"} {selectedGroups.size > 0 && `(${selectedGroups.size} grupo${selectedGroups.size !== 1 ? "s" : ""})`}
                 </span>
               )}
             </button>
@@ -460,7 +628,7 @@ export default function ManualDispatch() {
           </div>
 
           {/* ─── COL 3: Phone Mockup ─── */}
-          <div className="hidden xl:block">
+          <div className="hidden xl:block xl:col-start-3 xl:row-start-1 xl:row-span-2">
             <p className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: "var(--text-muted)" }}>Pré-visualização</p>
             <PhoneMockup
               message={message}

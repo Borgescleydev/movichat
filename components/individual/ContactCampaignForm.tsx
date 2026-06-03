@@ -24,6 +24,13 @@ interface Contact {
   columnId: string;
 }
 
+interface ContactGroup {
+  id: string;
+  name: string;
+  sourceGroupName: string | null;
+  _count?: { items: number };
+}
+
 interface Column {
   id: string;
   name: string;
@@ -151,6 +158,8 @@ export default function ContactCampaignForm({ onClose, onSaved, editing }: Conta
   const [instances, setInstances] = useState<Instance[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [columns, setColumns] = useState<Column[]>([]);
+  const [contactGroups, setContactGroups] = useState<ContactGroup[]>([]);
+  const [selectedContactGroupId, setSelectedContactGroupId] = useState("");
   const [loadingContacts, setLoadingContacts] = useState(false);
 
   useEffect(() => {
@@ -164,6 +173,7 @@ export default function ContactCampaignForm({ onClose, onSaved, editing }: Conta
       }
       setInstances(all);
     });
+    fetch("/api/contact-groups").then(r => r.ok ? r.json() : { contactGroups: [] }).then(d => setContactGroups(d.contactGroups || []));
   }, []);
 
   useEffect(() => {
@@ -206,6 +216,16 @@ export default function ContactCampaignForm({ onClose, onSaved, editing }: Conta
   function selectByColumn(colId: string) {
     const colContactIds = contacts.filter(c => c.columnId === colId).map(c => c.id);
     setSelectedContactIds(prev => [...new Set([...prev, ...colContactIds])]);
+  }
+
+  async function selectByContactGroup(groupId: string) {
+    setSelectedContactGroupId(groupId);
+    if (!groupId) return;
+    const res = await fetch(`/api/contact-groups/${groupId}`);
+    if (!res.ok) return;
+    const group = await res.json();
+    const ids = (group.items || []).map((item: { contact: { id: string } }) => item.contact.id);
+    setSelectedContactIds(prev => [...new Set([...prev, ...ids])]);
   }
 
   function toggleDay(day: number) {
@@ -454,6 +474,25 @@ export default function ContactCampaignForm({ onClose, onSaved, editing }: Conta
                       );
                     })}
                   </div>
+                </div>
+              )}
+
+              {contactGroups.length > 0 && (
+                <div className="rounded-xl p-3" style={{ backgroundColor: "var(--page-bg)", border: "1px solid var(--border)" }}>
+                  <p className="text-xs font-semibold mb-2" style={{ color: "var(--text-secondary)" }}>Carregar grupo de contatos coletado:</p>
+                  <select
+                    value={selectedContactGroupId}
+                    onChange={e => selectByContactGroup(e.target.value)}
+                    className="w-full text-sm rounded-lg border px-3 py-2"
+                    style={{ borderColor: "var(--border)", color: "var(--text-primary)", backgroundColor: "var(--card-bg)" }}
+                  >
+                    <option value="">Selecione uma lista...</option>
+                    {contactGroups.map(group => (
+                      <option key={group.id} value={group.id}>
+                        {group.name} ({group._count?.items || 0}){group.sourceGroupName ? ` - ${group.sourceGroupName}` : ""}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               )}
 

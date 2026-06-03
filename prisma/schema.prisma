@@ -27,6 +27,8 @@ model User {
   messageTemplates    MessageTemplate[]  @relation("MessageTemplateCreator")
   contactTemplates    ContactTemplate[]  @relation("ContactTemplateCreator")
   dispatchGroups      DispatchGroup[]    @relation("DispatchGroupCreator")
+  contactGroups       ContactGroup[]      @relation("ContactGroupCreator")
+  manualSchedules     ScheduledManualDispatch[] @relation("ManualScheduleCreator")
 }
 
 model PipelineColumn {
@@ -60,6 +62,7 @@ model Contact {
   messages           Message[]
   campaignContacts   ContactCampaignContact[]
   campaignDispatches ContactCampaignDispatch[]
+  contactGroupItems  ContactGroupItem[]
 }
 
 model Message {
@@ -120,8 +123,10 @@ model WhatsAppInstance {
   groups           WhatsAppGroup[]
   campaigns        Campaign[]
   manualLogs       ManualDispatchLog[]
+  manualSchedules  ScheduledManualDispatch[]
   contacts         Contact[]
   contactCampaigns ContactCampaign[]
+  contactGroups    ContactGroup[]
 }
 
 model WhatsAppGroup {
@@ -138,6 +143,7 @@ model WhatsAppGroup {
   campaignGroups      CampaignGroup[]
   dispatches          CampaignDispatch[]
   dispatchGroupItems  DispatchGroupItem[]
+  contactGroups       ContactGroup[]
 
   @@unique([instanceId, groupJid])
 }
@@ -263,6 +269,59 @@ model ManualDispatchLog {
   createdAt    DateTime @default(now())
 
   instance WhatsAppInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+}
+
+model ScheduledManualDispatch {
+  id           String   @id @default(cuid())
+  instanceId   String
+  message      String
+  mediaType    String?
+  mediaUrl     String?
+  mediaCaption String?
+  fileName     String?
+  groupIds     String   @default("[]")
+  scheduledFor DateTime
+  status       String   @default("scheduled")
+  errorMessage String?
+  createdById  String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  instance  WhatsAppInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  createdBy User?            @relation("ManualScheduleCreator", fields: [createdById], references: [id])
+}
+
+model ContactGroup {
+  id               String   @id @default(cuid())
+  name             String
+  description      String?
+  sourceGroupId    String?
+  sourceGroupName  String?
+  sourceGroupJid   String?
+  sourceInstanceId String?
+  createdById      String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  sourceGroup    WhatsAppGroup?    @relation(fields: [sourceGroupId], references: [id], onDelete: SetNull)
+  sourceInstance WhatsAppInstance? @relation(fields: [sourceInstanceId], references: [id], onDelete: SetNull)
+  createdBy      User?             @relation("ContactGroupCreator", fields: [createdById], references: [id])
+  items          ContactGroupItem[]
+}
+
+model ContactGroupItem {
+  id             String   @id @default(cuid())
+  contactGroupId String
+  contactId      String
+  sourcePhone    String?
+  sourceName     String?
+  rawJson        String?
+  createdAt      DateTime @default(now())
+
+  contactGroup ContactGroup @relation(fields: [contactGroupId], references: [id], onDelete: Cascade)
+  contact      Contact      @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@unique([contactGroupId, contactId])
 }
 
 model SystemSettings {

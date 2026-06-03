@@ -138,6 +138,62 @@ const migrations = [
     CURRENT_TIMESTAMP,
     CURRENT_TIMESTAMP
   )`,
+  `CREATE TABLE IF NOT EXISTS "ScheduledManualDispatch" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "instanceId" TEXT NOT NULL,
+    "message" TEXT NOT NULL,
+    "mediaType" TEXT,
+    "mediaUrl" TEXT,
+    "mediaCaption" TEXT,
+    "fileName" TEXT,
+    "groupIds" TEXT NOT NULL DEFAULT '[]',
+    "scheduledFor" DATETIME NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'scheduled',
+    "errorMessage" TEXT,
+    "createdById" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    FOREIGN KEY ("instanceId") REFERENCES "WhatsAppInstance"("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    FOREIGN KEY ("createdById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE
+  )`,
+  `CREATE TABLE IF NOT EXISTS "ContactGroup" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "name" TEXT NOT NULL,
+    "description" TEXT,
+    "sourceGroupId" TEXT,
+    "sourceGroupName" TEXT,
+    "sourceGroupJid" TEXT,
+    "sourceInstanceId" TEXT,
+    "createdById" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    FOREIGN KEY ("sourceGroupId") REFERENCES "WhatsAppGroup"("id") ON DELETE SET NULL ON UPDATE CASCADE,
+    FOREIGN KEY ("sourceInstanceId") REFERENCES "WhatsAppInstance"("id") ON DELETE SET NULL ON UPDATE CASCADE,
+    FOREIGN KEY ("createdById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE
+  )`,
+  `CREATE TABLE IF NOT EXISTS "ContactGroupItem" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "contactGroupId" TEXT NOT NULL,
+    "contactId" TEXT NOT NULL,
+    "sourcePhone" TEXT,
+    "sourceName" TEXT,
+    "rawJson" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY ("contactGroupId") REFERENCES "ContactGroup"("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    FOREIGN KEY ("contactId") REFERENCES "Contact"("id") ON DELETE CASCADE ON UPDATE CASCADE
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "ContactGroupItem_contactGroupId_contactId_key"
+    ON "ContactGroupItem"("contactGroupId", "contactId")`,
+  `INSERT OR IGNORE INTO "SystemChangelog" ("id","version","title","description","changes","deployedAt","createdAt","updatedAt") VALUES (
+    'changelog-v1-6-0',
+    'v1.6.0',
+    'Disparo manual agendado e grupos de contatos',
+    'Novo fluxo para agendar disparos manuais sem campanha, reutilizar grupos de disparo e coletar contatos de grupos WhatsApp.',
+    '[{"type":"feature","text":"Disparo manual agora permite aplicar Grupos de Disparo salvos"},{"type":"feature","text":"Disparo manual pode ser agendado sem vinculo com campanha"},{"type":"feature","text":"Coleta de contatos de grupos WhatsApp com importacao para a base de contatos"},{"type":"feature","text":"Grupos de contatos coletados ficam disponiveis nas campanhas individuais"},{"type":"feature","text":"Exportacao CSV dos grupos de contatos com dados de origem e dados disponiveis do contato"}]',
+    CURRENT_TIMESTAMP,
+    CURRENT_TIMESTAMP,
+    CURRENT_TIMESTAMP
+  )`,
 ];
 
 try {
