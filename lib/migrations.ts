@@ -227,6 +227,19 @@ const MIGRATIONS = [
     )`,
   },
   {
+    name: "SystemChangelog_seed_v1_5_1",
+    sql: `INSERT OR IGNORE INTO "SystemChangelog" ("id","version","title","description","changes","deployedAt","createdAt","updatedAt") VALUES (
+      'changelog-v1-5-1',
+      'v1.5.1',
+      'Agendamento de campanhas mais intuitivo',
+      'Melhoria no fluxo de criação e agendamento de campanhas em grupo, reduzindo etapas manuais e deixando claro quando a campanha entra na fila.',
+      '[{"type":"feature","text":"Novo modo Enviar agora na etapa de agendamento de campanhas"},{"type":"improvement","text":"Botão final de nova campanha agora cria e agenda automaticamente, mantendo Salvar rascunho como ação separada"},{"type":"improvement","text":"Atalhos rápidos para iniciar em 15 minutos, em 1 hora ou amanhã"},{"type":"improvement","text":"Resumo de agendamento mais claro com data, recorrência, janela ou lotes"},{"type":"fix","text":"Validação do agendamento não exige data no modo imediato e evita cálculo inválido de lotes"}]',
+      CURRENT_TIMESTAMP,
+      CURRENT_TIMESTAMP,
+      CURRENT_TIMESTAMP
+    )`,
+  },
+  {
     name: "SystemChangelog_seed_v1_2_0",
     sql: `INSERT OR IGNORE INTO "SystemChangelog" ("id","version","title","description","changes","deployedAt","createdAt","updatedAt") VALUES (
       'changelog-v1-2-0',

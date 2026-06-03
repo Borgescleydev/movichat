@@ -64,6 +64,7 @@ interface CampaignFormProps {
 const CHANNEL = "whatsapp";
 
 const SEND_TYPES = [
+  { value: "immediate", label: "Enviar agora", description: "Cria e coloca na fila imediatamente", icon: ">" },
   { value: "scheduled", label: "Envio único", description: "Uma vez em data/hora específica", icon: "📅" },
   { value: "recurring", label: "Recorrente", description: "Repete diariamente, semanalmente etc.", icon: "🔄" },
   { value: "windowed", label: "Janela de horário", description: "Só envia dentro do horário permitido", icon: "🕐" },
@@ -87,10 +88,15 @@ const WEEKDAYS = [
   { value: 6, label: "Sáb" },
 ];
 
-function toLocalDatetimeValue(iso: string): string {
-  const d = new Date(iso);
+function toLocalDatetimeValue(iso: string | Date): string {
+  const d = iso instanceof Date ? iso : new Date(iso);
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function formatDateTimeLabel(value: string): string {
+  if (!value) return "Defina data e hora";
+  return new Date(value).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
 }
 
 export default function CampaignForm({ onClose, onSaved, editing }: CampaignFormProps) {
@@ -223,6 +229,27 @@ export default function CampaignForm({ onClose, onSaved, editing }: CampaignForm
     setWindowDays((prev) => prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day].sort());
   }
 
+  function setStartOffset(minutes: number) {
+    setStartAt(toLocalDatetimeValue(new Date(Date.now() + minutes * 60_000)));
+  }
+
+  function getScheduleSummary(): string {
+    if (sendType === "immediate") return "A campanha será colocada na fila assim que for criada.";
+    if (!startAt) return "Escolha quando a campanha deve entrar na fila.";
+    if (sendType === "recurring") {
+      const recurrence = RECURRENCE_OPTIONS.find((r) => r.value === repeatType)?.label || repeatType;
+      return `Começa em ${formatDateTimeLabel(startAt)} e repete: ${recurrence.toLowerCase()}.`;
+    }
+    if (sendType === "windowed") {
+      return `Começa em ${formatDateTimeLabel(startAt)} e envia somente entre ${windowStart} e ${windowEnd}.`;
+    }
+    if (sendType === "batch") {
+      const safeBatchSize = Math.max(1, Number(batchSize) || 1);
+      return `Começa em ${formatDateTimeLabel(startAt)} com ${Math.ceil(selectedGroupIds.length / safeBatchSize)} lote(s).`;
+    }
+    return `Envio único em ${formatDateTimeLabel(startAt)}.`;
+  }
+
   // Draft only requires step 1 fields
   function canSaveDraft(): boolean {
     return name.trim().length > 0 && !!templateId && !!instanceId;
@@ -233,10 +260,10 @@ export default function CampaignForm({ onClose, onSaved, editing }: CampaignForm
     if (step === 2) return selectedGroupIds.length > 0;
     if (step === 3) return true;
     if (step === 4) {
-      if (sendType === "scheduled" || sendType === "recurring" || sendType === "windowed" || sendType === "batch") {
-        if (!startAt) return false;
-      }
-      return cadenceMin <= cadenceMax;
+      if (sendType !== "immediate" && !startAt) return false;
+      if (sendType === "batch" && (!batchSize || !batchIntervalMinutes)) return false;
+      if (sendType === "windowed" && (!windowStart || !windowEnd || windowDays.length === 0)) return false;
+      return cadenceMin <= cadenceMax && cadenceMin > 0 && cadenceMax > 0 && cadenceMaxPerHour > 0;
     }
     return true;
   }
@@ -287,6 +314,18 @@ export default function CampaignForm({ onClose, onSaved, editing }: CampaignForm
       }
 
       if (res.ok) {
+        const campaignId = typeof data.id === "string" ? data.id : null;
+
+        if (!editing && campaignId) {
+          const scheduleRes = await fetch(`/api/campaigns/${campaignId}/schedule`, { method: "POST" });
+          let scheduleData: Record<string, unknown> = {};
+          try { scheduleData = await scheduleRes.json(); } catch { /* non-JSON */ }
+
+          if (!scheduleRes.ok) {
+            alert((scheduleData.error as string) || "Campanha criada como rascunho, mas nao foi possivel agendar agora.");
+          }
+        }
+
         onSaved();
       } else {
         alert((data.error as string) || `Erro ao salvar campanha (HTTP ${res.status})`);
@@ -680,6 +719,29 @@ export default function CampaignForm({ onClose, onSaved, editing }: CampaignForm
               </div>
 
               {/* ── Envio único ── */}
+              {sendType === "immediate" && (
+                <div className="rounded-xl p-4" style={{ backgroundColor: "var(--primary-light)", border: "1px solid color-mix(in srgb, var(--primary) 25%, transparent)" }}>
+                  <p className="text-sm font-semibold" style={{ color: "var(--primary)" }}>Envio imediato</p>
+                  <p className="text-xs mt-1" style={{ color: "var(--primary)" }}>
+                    Ao criar a campanha, o sistema já gera a fila para os grupos selecionados. A cadência abaixo continua sendo aplicada entre os envios.
+                  </p>
+                </div>
+              )}
+
+              {sendType !== "immediate" && (
+                <div className="rounded-xl p-3 space-y-2" style={{ backgroundColor: "var(--page-bg)", border: "1px solid var(--border)" }}>
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Quando começar</p>
+                    <p className="text-xs" style={{ color: "var(--text-muted)" }}>{formatDateTimeLabel(startAt)}</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button type="button" onClick={() => setStartOffset(15)} className="text-xs px-3 py-1.5 rounded-lg border" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>em 15 min</button>
+                    <button type="button" onClick={() => setStartOffset(60)} className="text-xs px-3 py-1.5 rounded-lg border" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>em 1 hora</button>
+                    <button type="button" onClick={() => setStartOffset(24 * 60)} className="text-xs px-3 py-1.5 rounded-lg border" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>amanhã</button>
+                  </div>
+                </div>
+              )}
+
               {sendType === "scheduled" && (
                 <div>
                   <label className="block text-sm font-medium mb-1.5" style={{ color: "var(--text-primary)" }}>Data e hora de início *</label>
@@ -879,7 +941,7 @@ export default function CampaignForm({ onClose, onSaved, editing }: CampaignForm
                   </div>
                   <p className="text-xs" style={{ color: "var(--text-muted)" }}>
                     Serão enviadas {batchSize} mensagens a cada {batchIntervalMinutes} minuto{batchIntervalMinutes !== 1 ? "s" : ""}.
-                    Total: {selectedGroupIds.length} grupos → ~{Math.ceil(selectedGroupIds.length / batchSize)} lotes.
+                    Total: {selectedGroupIds.length} grupos → ~{Math.ceil(selectedGroupIds.length / Math.max(1, Number(batchSize) || 1))} lotes.
                   </p>
                 </div>
               )}
@@ -931,9 +993,10 @@ export default function CampaignForm({ onClose, onSaved, editing }: CampaignForm
                   <li>• Canal: 💬 WhatsApp</li>
                   <li>• {selectedGroupIds.length} grupo{selectedGroupIds.length !== 1 ? "s" : ""} selecionado{selectedGroupIds.length !== 1 ? "s" : ""}</li>
                   <li>• Tipo: {SEND_TYPES.find((t) => t.value === sendType)?.label}</li>
+                  <li>• {getScheduleSummary()}</li>
                   {sendType === "recurring" && <li>• Repetição: {RECURRENCE_OPTIONS.find((r) => r.value === repeatType)?.label}{repeatType === "custom" ? ` (${repeatEveryX} ${repeatEveryUnit})` : ""}</li>}
                   {sendType === "windowed" && <li>• Janela: {windowStart} – {windowEnd} ({windowDays.length} dias/semana)</li>}
-                  {sendType === "batch" && <li>• Lotes: {batchSize} msgs a cada {batchIntervalMinutes} min → ~{Math.ceil(selectedGroupIds.length / batchSize)} lotes</li>}
+                  {sendType === "batch" && <li>• Lotes: {batchSize} msgs a cada {batchIntervalMinutes} min → ~{Math.ceil(selectedGroupIds.length / Math.max(1, Number(batchSize) || 1))} lotes</li>}
                   <li>• Cadência: {cadenceMin}–{cadenceMax}s entre envios (máx {cadenceMaxPerHour}/hora)</li>
                 </ul>
               </div>
@@ -988,7 +1051,7 @@ export default function CampaignForm({ onClose, onSaved, editing }: CampaignForm
               className="text-sm px-6 py-2 rounded-lg text-white font-medium disabled:opacity-40"
               style={{ backgroundColor: "var(--primary)" }}
             >
-              {saving ? "Salvando..." : editing ? "Salvar Alterações" : "Criar Campanha"}
+              {saving ? "Agendando..." : editing ? "Salvar alterações" : "Criar e agendar"}
             </button>
           )}
           </div>
