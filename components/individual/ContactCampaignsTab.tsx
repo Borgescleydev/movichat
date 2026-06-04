@@ -55,7 +55,12 @@ const SEND_TYPE_LABEL: Record<string, string> = {
 
 const ALL_STATUSES = ["all", "draft", "scheduled", "running", "paused", "completed", "cancelled", "error"];
 
-export default function ContactCampaignsTab() {
+interface ContactCampaignsTabProps {
+  initialContactGroupId?: string | null;
+  onInitialContactGroupConsumed?: () => void;
+}
+
+export default function ContactCampaignsTab({ initialContactGroupId, onInitialContactGroupConsumed }: ContactCampaignsTabProps) {
   const [campaigns, setCampaigns] = useState<ContactCampaign[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -63,6 +68,7 @@ export default function ContactCampaignsTab() {
   const [detailId, setDetailId] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState("all");
+  const [preloadedContactGroupId, setPreloadedContactGroupId] = useState<string | null>(null);
 
   const loadCampaigns = useCallback(async () => {
     const url = statusFilter === "all" ? "/api/individual/campaigns" : `/api/individual/campaigns?status=${statusFilter}`;
@@ -72,6 +78,14 @@ export default function ContactCampaignsTab() {
   }, [statusFilter]);
 
   useEffect(() => { loadCampaigns(); }, [loadCampaigns]);
+
+  useEffect(() => {
+    if (!initialContactGroupId) return;
+    setPreloadedContactGroupId(initialContactGroupId);
+    setEditingCampaign(null);
+    setShowForm(true);
+    onInitialContactGroupConsumed?.();
+  }, [initialContactGroupId, onInitialContactGroupConsumed]);
 
   async function scheduleCampaign(id: string) {
     setActionLoading(id + "-schedule");
@@ -130,6 +144,7 @@ export default function ContactCampaignsTab() {
   function closeForm() {
     setShowForm(false);
     setEditingCampaign(null);
+    setPreloadedContactGroupId(null);
   }
 
   if (loading) return (
@@ -353,6 +368,7 @@ export default function ContactCampaignsTab() {
           onClose={closeForm}
           onSaved={() => { closeForm(); loadCampaigns(); }}
           editing={editingCampaign}
+          initialContactGroupId={preloadedContactGroupId}
         />
       )}
 

@@ -3,8 +3,9 @@
 import { useState } from "react";
 import ContactCampaignsTab from "./ContactCampaignsTab";
 import ContactTemplatesTab from "./ContactTemplatesTab";
+import ContactGroupsTab from "./ContactGroupsTab";
 
-type Tab = "campanhas" | "templates";
+type Tab = "campanhas" | "grupos" | "templates";
 
 const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   {
@@ -13,6 +14,15 @@ const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
     icon: (
       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+      </svg>
+    ),
+  },
+  {
+    id: "grupos",
+    label: "Grupos de Contatos",
+    icon: (
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m10-4.13a4 4 0 11-8 0 4 4 0 018 0zm-8 0a4 4 0 11-8 0 4 4 0 018 0z" />
       </svg>
     ),
   },
@@ -29,6 +39,12 @@ const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
 
 export default function IndividualClient() {
   const [tab, setTab] = useState<Tab>("campanhas");
+  const [initialContactGroupId, setInitialContactGroupId] = useState<string | null>(null);
+
+  function createCampaignFromGroup(contactGroupId: string) {
+    setInitialContactGroupId(contactGroupId);
+    setTab("campanhas");
+  }
 
   return (
     <div className="flex flex-col h-full" style={{ backgroundColor: "var(--page-bg)" }}>
@@ -66,7 +82,13 @@ export default function IndividualClient() {
 
       {/* Tab content */}
       <div className="flex-1 overflow-auto p-8">
-        {tab === "campanhas" && <ContactCampaignsTab />}
+        {tab === "campanhas" && (
+          <ContactCampaignsTab
+            initialContactGroupId={initialContactGroupId}
+            onInitialContactGroupConsumed={() => setInitialContactGroupId(null)}
+          />
+        )}
+        {tab === "grupos" && <ContactGroupsTab onCreateCampaign={createCampaignFromGroup} />}
         {tab === "templates" && <ContactTemplatesTab />}
       </div>
     </div>

@@ -310,6 +310,19 @@ const MIGRATIONS = [
     )`,
   },
   {
+    name: "SystemChangelog_seed_v1_6_1",
+    sql: `INSERT OR IGNORE INTO "SystemChangelog" ("id","version","title","description","changes","deployedAt","createdAt","updatedAt") VALUES (
+      'changelog-v1-6-1',
+      'v1.6.1',
+      'Grupos de contatos para disparo individual',
+      'Nova aba no modulo de disparo individual para criar grupos de contatos a partir de grupos WhatsApp e usar essas listas em campanhas.',
+      '[{"type":"feature","text":"Nova aba Grupos de Contatos no modulo Disparo Individual"},{"type":"feature","text":"Criacao de grupo de contatos a partir da extracao de um grupo WhatsApp"},{"type":"feature","text":"Botao Criar campanha abre uma campanha individual com a lista de contatos ja carregada"},{"type":"improvement","text":"Listagem centralizada dos grupos de contatos com exportacao CSV e exclusao da lista"}]',
+      CURRENT_TIMESTAMP,
+      CURRENT_TIMESTAMP,
+      CURRENT_TIMESTAMP
+    )`,
+  },
+  {
     name: "SystemChangelog_seed_v1_2_0",
     sql: `INSERT OR IGNORE INTO "SystemChangelog" ("id","version","title","description","changes","deployedAt","createdAt","updatedAt") VALUES (
       'changelog-v1-2-0',

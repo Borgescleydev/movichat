@@ -66,6 +66,7 @@ interface ContactCampaignFormProps {
   onClose: () => void;
   onSaved: () => void;
   editing?: ContactCampaign | null;
+  initialContactGroupId?: string | null;
 }
 
 const CONTACT_VARS = ["name", "phone", "email", "notes", "date", "time"];
@@ -117,7 +118,7 @@ function resolvePreview(text: string): string {
 
 const STEPS = ["Básico", "Contatos", "Prévia", "Agendamento"];
 
-export default function ContactCampaignForm({ onClose, onSaved, editing }: ContactCampaignFormProps) {
+export default function ContactCampaignForm({ onClose, onSaved, editing, initialContactGroupId }: ContactCampaignFormProps) {
   const [step, setStep] = useState(1);
   const [saving, setSaving] = useState(false);
   const [savingDraft, setSavingDraft] = useState(false);
@@ -227,6 +228,12 @@ export default function ContactCampaignForm({ onClose, onSaved, editing }: Conta
     const ids = (group.items || []).map((item: { contact: { id: string } }) => item.contact.id);
     setSelectedContactIds(prev => [...new Set([...prev, ...ids])]);
   }
+
+  useEffect(() => {
+    if (!initialContactGroupId || editing) return;
+    selectByContactGroup(initialContactGroupId);
+    setStep(2);
+  }, [initialContactGroupId, editing]);
 
   function toggleDay(day: number) {
     setWindowDays(prev => prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day].sort());
