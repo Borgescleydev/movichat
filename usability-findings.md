@@ -102,11 +102,12 @@
 - Observado: carrega lista completa de contatos de cada campanha + 3 counts por campanha.
 - **Correção:** `include.contacts` removido em favor de `_count.contacts` (`totalContacts`); dispatches agregados via 1 `groupBy`. Como o form de edição dependia de `contacts`, `ContactCampaignsTab.openEdit` passou a buscar o detalhe (`GET /api/individual/campaigns/[id]`) sob demanda.
 
-## F-302 | categoria: performance | severidade: alta | status: aberto
+## F-302 | categoria: performance | severidade: alta | status: corrigido
 - Arquivo: `app/api/campaigns/[id]/analytics/route.ts:20-32` (consumido por `components/campaigns/CampaignDetail.tsx`)
 - Problema: busca TODOS os `campaignDispatch` da campanha sem paginação (`findMany` sem `take`/`skip`) e calcula sent/failed/skipped/pending com `.filter().length` em JS. O `CampaignDetail` faz **polling a cada 8s** (`CampaignDetail.tsx:101`) enquanto a campanha está `running`/`scheduled`, refazendo esse fetch completo a cada ciclo. Campanhas com centenas/milhares de grupos transferem e renderizam tudo repetidamente.
 - Esperado: contagens via `groupBy`/`count` no banco; lista de dispatches paginada.
 - Observado: full scan dos dispatches + recomputo em JS a cada 8s.
+- **Correção:** contagens (sent/failed/skipped/pending/total) agora via 1 `groupBy` por status no banco; lista de dispatches paginada (`?page`/`?limit`, default 100, máx 500) com `skip`/`take`. Resposta inclui `page`/`limit`.
 
 ## F-303 | categoria: performance | severidade: media | status: aberto
 - Arquivo: `components/campaigns/ManualDispatch.tsx:165-174` e render em `:389`
