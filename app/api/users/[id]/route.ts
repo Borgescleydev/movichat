@@ -53,6 +53,14 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
   }
 
+  const targetUser = await prisma.user.findUnique({ where: { id }, select: { role: true } });
+  if (!targetUser) return NextResponse.json({ error: "Usuário não encontrado" }, { status: 404 });
+
+  // F-401: only superadmin may modify admin/superadmin accounts (self-edit still allowed).
+  if (!isSelf && !isSuperAdmin && (targetUser.role === "admin" || targetUser.role === "superadmin")) {
+    return NextResponse.json({ error: "Sem permissão para modificar este usuário" }, { status: 403 });
+  }
+
   const data: Record<string, unknown> = {};
   if (body.name !== undefined) data.name = body.name.trim();
   if (body.username !== undefined) {
@@ -61,8 +69,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     data.username = body.username.trim();
   }
   if (body.avatar !== undefined) data.avatar = body.avatar; // base64 or null
-  if (body.role !== undefined && isSuperAdmin) data.role = body.role;
-  if (body.role !== undefined && isAdminOrAbove && !isSelf) data.role = body.role;
+  if (body.role !== undefined && !isSelf && isAdminOrAbove) {
+    // F-400: only superadmin may grant the superadmin role.
+    if (body.role === "superadmin" && !isSuperAdmin) {
+      return NextResponse.json({ error: "Sem permissão para atribuir o papel superadmin" }, { status: 403 });
+    }
+    data.role = body.role;
+  }
   if (body.active !== undefined && isAdminOrAbove) data.active = body.active;
   if (body.password !== undefined && body.password.trim()) data.password = await hashPassword(body.password.trim());
   if (body.permissions !== undefined && isAdminOrAbove) data.permissions = JSON.stringify(body.permissions);

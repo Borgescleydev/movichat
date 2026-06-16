@@ -27,6 +27,12 @@ export async function POST(req: NextRequest) {
 
   const { name, username, password, role, permissions } = await req.json();
 
+  const targetRole = role || "agent";
+  // F-400: only superadmin may create a superadmin account.
+  if (targetRole === "superadmin" && user.role !== "superadmin") {
+    return NextResponse.json({ error: "Sem permissão para criar o papel superadmin" }, { status: 403 });
+  }
+
   const exists = await prisma.user.findUnique({ where: { username } });
   if (exists) return NextResponse.json({ error: "Usuário já existe" }, { status: 400 });
 
@@ -36,7 +42,7 @@ export async function POST(req: NextRequest) {
       name,
       username,
       password: hashed,
-      role: role || "agent",
+      role: targetRole,
       permissions: JSON.stringify(permissions ?? {}),
     },
     select: { id: true, name: true, username: true, role: true, active: true, avatar: true, permissions: true },
