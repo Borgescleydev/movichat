@@ -8,9 +8,7 @@ import CronSettings from "@/components/settings/CronSettings";
 import SessionsSettings from "@/components/settings/SessionsSettings";
 
 // ─── Types ───────────────────────────────────────────────────
-interface Column { id: string; name: string; color: string; order: number; isDefault: boolean; }
-
-interface UserPerms { conversations?: boolean; campaigns?: boolean; individual?: boolean; contacts?: boolean; pipeline?: boolean; providers?: boolean; reports?: boolean; }
+interface UserPerms { campaigns?: boolean; individual?: boolean; contacts?: boolean; providers?: boolean; reports?: boolean; }
 interface User {
   id: string; name: string; username: string; role: string; active: boolean;
   avatar?: string | null; permissions?: UserPerms;
@@ -23,14 +21,12 @@ interface UserResources {
 
 interface WhatsAppSession { id: string; status: string; qrCode?: string; phone?: string; }
 
-type Tab = "profile" | "pipeline" | "users" | "resources" | "providers" | "appearance" | "whatsapp" | "cron" | "sessions";
+type Tab = "profile" | "users" | "resources" | "providers" | "appearance" | "whatsapp" | "cron" | "sessions";
 
 const PERM_GROUPS = [
-  { key: "conversations", label: "Conversas",          icon: "💬", desc: "Acesso à área de conversas" },
   { key: "campaigns",     label: "Campanhas",           icon: "📢", desc: "Criar e gerenciar campanhas" },
   { key: "individual",    label: "Disparo Individual",  icon: "👤", desc: "Criar e gerenciar disparos para contatos individuais" },
   { key: "contacts",      label: "Contatos",            icon: "👥", desc: "Gerenciar contatos" },
-  { key: "pipeline",      label: "Pipeline",            icon: "📊", desc: "Visualizar e mover pipeline" },
   { key: "providers",     label: "Provedores",          icon: "🔌", desc: "Gerenciar instâncias WhatsApp" },
   { key: "reports",       label: "Relatórios",          icon: "📈", desc: "Visualizar dashboard e relatórios" },
 ] as const;
@@ -90,7 +86,6 @@ export default function SettingsClient({ userRole }: { userRole: string }) {
 
   const tabs = [
     { key: "profile",    label: "Meu Perfil" },
-    { key: "pipeline",   label: "Pipeline" },
     ...(isAdmin   ? [{ key: "users",     label: "Usuários" }]   : []),
     ...(isSuperAdmin ? [{ key: "resources", label: "Recursos" }] : []),
     { key: "providers",  label: "Provedores API" },
@@ -118,7 +113,6 @@ export default function SettingsClient({ userRole }: { userRole: string }) {
       </div>
 
       {tab === "profile"    && <ProfileSettings />}
-      {tab === "pipeline"   && <PipelineSettings userRole={userRole} />}
       {tab === "users"      && isAdmin      && <UsersSettings userRole={userRole} />}
       {tab === "resources"  && isSuperAdmin && <ResourcesSettings />}
       {tab === "providers"  && <ProvidersSettings />}
@@ -301,78 +295,6 @@ function ProfileSettings() {
           </button>
         </form>
       </div>
-    </div>
-  );
-}
-
-// ─── Pipeline Settings ─────────────────────────────────────────
-function PipelineSettings({ userRole }: { userRole: string }) {
-  const [columns, setColumns] = useState<Column[]>([]);
-  const [editing, setEditing] = useState<string | null>(null);
-  const [editName, setEditName] = useState("");
-  const [editColor, setEditColor] = useState("");
-  const isAdmin = ["superadmin","admin"].includes(userRole);
-
-  useEffect(() => { loadColumns(); }, []);
-
-  async function loadColumns() {
-    const res = await fetch("/api/pipeline");
-    if (res.ok) setColumns(await res.json());
-  }
-  function startEdit(col: Column) { setEditing(col.id); setEditName(col.name); setEditColor(col.color); }
-  async function saveEdit(id: string) {
-    await fetch(`/api/pipeline/${id}`, { method:"PATCH", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ name: editName, color: editColor }) });
-    setEditing(null); loadColumns();
-  }
-  async function deleteColumn(id: string) {
-    if (!confirm("Excluir coluna? Os contatos serão movidos para a coluna padrão.")) return;
-    await fetch(`/api/pipeline/${id}`, { method:"DELETE" }); loadColumns();
-  }
-  async function moveColumn(id: string, dir: "up"|"down") {
-    const idx = columns.findIndex(c=>c.id===id);
-    const si = dir==="up"?idx-1:idx+1;
-    if (si<0||si>=columns.length) return;
-    const u=[...columns]; [u[idx],u[si]]=[u[si],u[idx]];
-    await Promise.all([
-      fetch(`/api/pipeline/${u[idx].id}`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({order:idx})}),
-      fetch(`/api/pipeline/${u[si].id}`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({order:si})}),
-    ]); loadColumns();
-  }
-
-  return (
-    <div className="max-w-2xl">
-      <h2 className="text-lg font-semibold mb-4" style={{ color:"var(--text-primary)" }}>Colunas do Pipeline</h2>
-      <div className="space-y-3">
-        {columns.map((col, idx) => (
-          <div key={col.id} className="rounded-xl p-4" style={{ backgroundColor:"var(--card-bg)", border:"1px solid var(--border)" }}>
-            {editing===col.id ? (
-              <div className="flex items-center gap-3">
-                <input type="color" value={editColor} onChange={e=>setEditColor(e.target.value)} className="w-8 h-8 rounded cursor-pointer border-0" />
-                <input value={editName} onChange={e=>setEditName(e.target.value)}
-                  className="flex-1 border rounded-lg px-3 py-2 text-sm outline-none"
-                  style={{ borderColor:"var(--border)", color:"var(--text-primary)", backgroundColor:"var(--page-bg)" }} />
-                <button onClick={()=>saveEdit(col.id)} className="text-white px-3 py-2 rounded-lg text-sm" style={{ backgroundColor:"var(--primary)" }}>Salvar</button>
-                <button onClick={()=>setEditing(null)} className="border px-3 py-2 rounded-lg text-sm" style={{ borderColor:"var(--border)", color:"var(--text-secondary)" }}>Cancelar</button>
-              </div>
-            ) : (
-              <div className="flex items-center gap-3">
-                <div className="w-4 h-4 rounded-full flex-shrink-0" style={{ backgroundColor:col.color }} />
-                <span className="flex-1 text-sm font-medium" style={{ color:"var(--text-primary)" }}>{col.name}</span>
-                {col.isDefault && <span className="text-xs px-2 py-0.5 rounded-full" style={{ backgroundColor:"var(--primary-light)", color:"var(--primary)" }}>padrão</span>}
-                {isAdmin && (
-                  <div className="flex items-center gap-1">
-                    <button onClick={()=>moveColumn(col.id,"up")} disabled={idx===0} className="p-1 disabled:opacity-30" style={{ color:"var(--text-muted)" }}><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7"/></svg></button>
-                    <button onClick={()=>moveColumn(col.id,"down")} disabled={idx===columns.length-1} className="p-1 disabled:opacity-30" style={{ color:"var(--text-muted)" }}><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7"/></svg></button>
-                    <button onClick={()=>startEdit(col)} className="p-1" style={{ color:"var(--primary)" }}><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg></button>
-                    {!col.isDefault && <button onClick={()=>deleteColumn(col.id)} className="p-1" style={{ color:"var(--danger)" }}><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg></button>}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
-      <p className="text-xs mt-3" style={{ color:"var(--text-muted)" }}>A coluna padrão recebe todos os novos contatos do WhatsApp. Pode ser renomeada mas não excluída.</p>
     </div>
   );
 }
@@ -896,7 +818,7 @@ function WhatsAppSettings() {
         )}
         {session?.status==="connected" && (
           <div className="rounded-lg p-4 text-sm" style={{ backgroundColor:"color-mix(in srgb, var(--success) 10%, transparent)", color:"var(--success)", border:"1px solid color-mix(in srgb, var(--success) 25%, transparent)" }}>
-            WhatsApp conectado! Novos contatos serão automaticamente adicionados ao pipeline.
+            WhatsApp conectado! Novos contatos serão automaticamente adicionados.
           </div>
         )}
       </div>
