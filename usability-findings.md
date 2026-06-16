@@ -216,3 +216,43 @@
 
 ### Gestão de usuários
 JWT 7d + sessões revogáveis; papéis superadmin/admin/agent com permissões JSON por usuário; dados escopados por dono (só superadmin vê tudo). **Riscos altos:** admin pode promover/criar `superadmin` e alterar/desativar contas de admins e do superadmin (escalonamento — F-400/F-401); `JWT_SECRET` com fallback hardcoded (F-402). **Médios/baixos:** sem validação de senha (F-403), visibilidade de admin restrita aos próprios ativos pode não atender a gestão de equipe (F-404), debug do webhook grava payloads continuamente (F-405).
+
+---
+
+# FASE 5 — Revisão final de qualidade pós-fix (F-5XX)
+
+> Passe de validação **read-only** após os clusters de remoção/fix. Veredicto: **REPROVADO — re-fix necessário** (2 bloqueadores). VERIFICAÇÕES 3, 5 e 6 passaram integralmente; VERIFICAÇÕES 1, 2 e 4 falharam com os itens abaixo.
+
+## F-500 | categoria: funcional | severidade: alta | status: corrigido
+- Arquivo: `app/contacts/ContactsClient.tsx:166` (interface órfã em `:13`)
+- Problema: **bug de runtime.** A linha renderiza `{contact.messages[0]?.body || ...}`, mas o GET `app/api/contacts/route.ts:22-24` só faz `include: { assignedTo }` — **nunca retorna `messages`** (o model `Message` foi removido). Em runtime `contact.messages` é `undefined`, então `contact.messages[0]` lança `TypeError: Cannot read properties of undefined (reading '0')` ao renderizar **cada linha** da lista de contatos → a tela de Contatos quebra. O `?.` protege o acesso a `.body`, mas NÃO protege o indexador `[0]` sobre `undefined`.
+- Por que o TS não pega: a interface `Contact` (l.13) declara `messages: { body: string; timestamp: string }[]` como **obrigatório**, mascarando a divergência com o que a API realmente devolve. Classificação da VERIFICAÇÃO 4: **bug real, não dead code** — a linha executa e quebra.
+- **Correção:** campo `messages` removido da interface `Contact`; coluna "Última mensagem" (header + célula) removida da tabela de contatos. Resíduo da remoção do model `Message` eliminado.
+
+## F-501 | categoria: funcional | severidade: media | status: corrigido
+- Arquivo: `app/contacts/ContactsClient.tsx:171`
+- Problema: o botão "Conversar" aponta para `href={`/conversations?contact=${contact.id}`}` — rota `app/conversations/` removida em F-200. Link morto → navega para 404. Resíduo do módulo de conversas.
+- **Correção:** `<Link>` "Conversar" removido junto com o import `next/link` (que ficou órfão). Coluna de ações mantém apenas o botão "Excluir" (admin).
+
+## F-502 | categoria: funcional | severidade: alta | status: corrigido
+- Arquivo: `lib/auth.ts:47` e `lib/auth.ts:52`
+- Problema: **erros reais de TypeScript (bloqueadores de `tsc --noEmit`).** Após a correção do F-402 (remoção do fallback hardcoded), `const JWT_SECRET = process.env.JWT_SECRET` passou a ter tipo `string | undefined`. O guard `if (!JWT_SECRET) throw` no escopo do módulo **não estreita** o tipo dentro das closures `signToken`/`verifyToken`, então:
+  - `:47` `jwt.sign(payload, JWT_SECRET, ...)` → `TS2769 No overload matches this call` (`string | undefined` não atribuível).
+  - `:52` `jwt.verify(token, JWT_SECRET)` → `TS2769` + `TS2352`.
+- **Correção do contrato (F-209, l.73 e F-402) está imprecisa:** estes erros NÃO são "pré-existentes" — são **regressão introduzida pela remoção do fallback** (antes o `|| "..."` garantia tipo `string`). São os únicos erros de `tsc --noEmit` no código-fonte (fora de `node_modules`/`.next`).
+- Esperado: garantir o tipo `string` após o guard, ex. `const JWT_SECRET: string = process.env.JWT_SECRET ?? ((): string => { throw new Error("JWT_SECRET environment variable is not set"); })();` ou afirmar não-nulo (`process.env.JWT_SECRET!`) preservando o `throw`.
+- **Correção:** `JWT_SECRET` agora é `const JWT_SECRET: string = process.env.JWT_SECRET ?? ((): string => { throw new Error("JWT_SECRET environment variable is not set"); })();` — tipo `string` garantido no escopo do módulo, eliminando os `TS2769`/`TS2352` em `signToken`/`verifyToken`. Comportamento de falhar o boot se a env estiver ausente (F-402) preservado.
+
+## F-503 | categoria: funcional | severidade: baixa | status: corrigido
+- Arquivo: `lib/migrations.ts:176`
+- Problema: migration residual `{ name: "Contact_lastReadAt", sql: 'ALTER TABLE "Contact" ADD COLUMN "lastReadAt" DATETIME' }` ainda presente, adicionando ao banco uma coluna que o schema Prisma não define mais (F-205). **Impacto baixo:** ALTER idempotente; a coluna fica órfã no banco, sem uso pelo client. O contrato (F-209, l.73) afirmava que os resíduos de conversas em `lib/migrations.ts` foram limpos — esta entrada escapou.
+- Observação adicional (cosmético, NÃO-bloqueador): `lib/migrations.ts:271,323` contêm **texto de changelog histórico** (dados gravados em `SystemChangelog`) mencionando "conversas"/"pipeline"/"SSE". É dado descritivo de versões passadas, não referência de código — pode ser mantido.
+- **Correção:** entrada `Contact_lastReadAt` removida da lista `MIGRATIONS`. Texto de changelog histórico (l.271,323) mantido por ser dado descritivo de versões passadas, não referência de código.
+
+## Resultado das 6 verificações
+- **VERIFICAÇÃO 1 (refs residuais):** FALHOU — `ContactsClient.tsx:13,166,171` (F-500/F-501), `migrations.ts:176` (F-503). Legítimos confirmados: `messageTemplate`, `errorMessage`/`messageId`, `ManualDispatchLog.message`/`ScheduledManualDispatch.message`, `data.messages` dos providers (Evolution/uazapi — shape da API externa do WhatsApp).
+- **VERIFICAÇÃO 2 (tsc):** FALHOU — `lib/auth.ts:47,52` (F-502, bloqueador). Nenhum outro erro de código-fonte.
+- **VERIFICAÇÃO 3 (Prisma):** PASSOU — `Message` e `PipelineColumn` ausentes; sem `@relation` pendente; `Contact` sem `columnId`/`lastReadAt`; `npx prisma validate` → "schema is valid".
+- **VERIFICAÇÃO 4 (ContactsClient):** FALHOU — bug real de runtime (F-500), não dead code.
+- **VERIFICAÇÃO 5 (performance):** PASSOU — `campaigns/route.ts` com `_count.dispatches` + paginação `skip/take` + `groupBy`; `CampaignDetail.tsx` polling 30000ms (l.101) com cleanup `clearInterval` (l.95,103,105); `ManualDispatch.tsx` `filteredGroups` em `useMemo` (l.170).
+- **VERIFICAÇÃO 6 (segurança):** PASSOU — `lib/auth.ts` sem fallback hardcoded + `throw` se ausente + throttle de 60s (l.84); `UserPerms` sem `conversations`/`pipeline`; guards de role em `users/[id]/route.ts` (F-400/F-401, l.60-78) e `users/route.ts` POST (F-400, l.32-34).
