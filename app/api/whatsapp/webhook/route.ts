@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getProvider } from "@/lib/providers";
-import { notifySseClients } from "@/lib/sse-store";
 
 export async function POST(req: NextRequest) {
   try {
@@ -60,9 +59,9 @@ export async function POST(req: NextRequest) {
       });
 
     if (parsed.type === "message") {
-      const { phone, name, message, waMessageId, mediaBase64, mediaType } = parsed.data;
+      const { phone, name, message } = parsed.data;
       if (phone && message) {
-        await handleIncomingMessage(phone, name || phone, message, instance?.id, waMessageId, mediaBase64, mediaType);
+        await handleIncomingMessage(phone, name || phone, message, instance?.id);
       }
     }
 
@@ -97,34 +96,20 @@ export async function POST(req: NextRequest) {
   }
 }
 
-async function handleIncomingMessage(phone: string, name: string, message: string, instanceId?: string, waMessageId?: string, mediaBase64?: string, mediaType?: string) {
+async function handleIncomingMessage(phone: string, name: string, message: string, instanceId?: string) {
   const cleanPhone = phone.replace(/\D/g, "");
   if (!cleanPhone || !message) return;
 
-  // Deduplicate: if we already stored this exact WhatsApp message, skip it
-  if (waMessageId) {
-    const existing = await prisma.message.findFirst({ where: { waMessageId } });
-    if (existing) return;
-  }
-
-  let contact = await prisma.contact.findUnique({ where: { phone: cleanPhone } });
+  const contact = await prisma.contact.findUnique({ where: { phone: cleanPhone } });
 
   if (!contact) {
-    const defaultCol = await prisma.pipelineColumn.findFirst({
-      where: { isDefault: true },
-      orderBy: { order: "asc" },
-    }) ?? await prisma.pipelineColumn.findFirst({ orderBy: { order: "asc" } });
-
-    if (defaultCol) {
-      contact = await prisma.contact.create({
-        data: {
-          name: name && name !== cleanPhone ? name : `+${cleanPhone}`,
-          phone: cleanPhone,
-          columnId: defaultCol.id,
-          instanceId: instanceId ?? null,
-        },
-      });
-    }
+    await prisma.contact.create({
+      data: {
+        name: name && name !== cleanPhone ? name : `+${cleanPhone}`,
+        phone: cleanPhone,
+        instanceId: instanceId ?? null,
+      },
+    });
   } else {
     await prisma.contact.update({
       where: { id: contact.id },
@@ -135,20 +120,5 @@ async function handleIncomingMessage(phone: string, name: string, message: strin
         updatedAt: new Date(),
       },
     });
-  }
-
-  if (contact) {
-    const msg = await prisma.message.create({
-      data: {
-        contactId: contact.id,
-        body: message,
-        fromMe: false,
-        status: "received",
-        ...(waMessageId ? { waMessageId } : {}),
-        ...(mediaBase64 ? { mediaUrl: mediaBase64 } : {}),
-        ...(mediaType   ? { mediaType } : {}),
-      },
-    });
-    notifySseClients({ type: "message", contactId: contact.id, messageId: msg.id });
   }
 }
