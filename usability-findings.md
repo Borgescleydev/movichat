@@ -40,18 +40,20 @@
 - **Correção:** `lib/sse-store.ts` removido. Commit `95fd056` — "fix(F-203): remove store SSE órfão — lib/sse-store.ts".
 - **IMPORT QUEBRADO RESTANTE (não corrigido — fora do meu cluster, pertence a F-212):** `app/api/whatsapp/webhook/route.ts:4` ainda importa `@/lib/sse-store` (`error TS2307: Cannot find module '@/lib/sse-store'`). Outro resolvedor deve remover esse import e a chamada `notifySseClients()`.
 
-## F-204 | categoria: funcional | severidade: alta | status: aberto
+## F-204 | categoria: funcional | severidade: alta | status: corrigido
 - Arquivo: `prisma/schema.prisma` — model `Message` (linhas 68-80) e relação `Contact.messages` (linha 62)
 - Motivo: tabela de mensagens do chat. Remover model + relação. **Atenção:** `onDelete: Cascade` em `Message.contact` some junto.
+- **Correção:** model `Message` e relação `Contact.messages` removidos (`prisma/schema.prisma`). Schema sincronizado via `npx prisma db push --accept-data-loss` — `migrate dev` falhou com **P3006** por histórico de migrations pré-existente quebrado (shadow DB sem tabela `Campaign` na migration `20260511020000_campaign_scheduling`), não relacionado a esta mudança. Commit `164faca` — "fix(F-230): remove models Message e PipelineColumn do schema Prisma".
 
-## F-205 | categoria: funcional | severidade: media | status: aberto
+## F-205 | categoria: funcional | severidade: media | status: corrigido
 - Arquivo: `prisma/schema.prisma` — campos `Contact.lastReadAt` (l.55) e `WhatsAppInstance.conversationsEnabled` (l.117)
 - Motivo: flags exclusivas de conversas (controle de não-lidas e habilitar chat por instância).
+- **Correção:** `Contact.lastReadAt` e `WhatsAppInstance.conversationsEnabled` removidos do schema. Commit `164faca`. UI do toggle de conversas por instância também removida de `components/settings/ProvidersSettings.tsx` (commit `3fbeb87`).
 
 ## F-206 | categoria: funcional | severidade: alta | status: corrigido
 - Arquivo: `app/pipeline/page.tsx`
 - Motivo: página do funil/kanban — remover 100%. Item de menu "Pipeline" em `components/layout/Sidebar.tsx:20-23` também deve sair.
-- **Correção:** pasta `app/pipeline/` removida. O item de menu em `Sidebar.tsx` é de outro cluster (não tocado).
+- **Correção:** pasta `app/pipeline/` removida. Item de menu "Pipeline" em `components/layout/Sidebar.tsx:20-23` removido por este cluster — commit `6e22ef6` — "fix(F-220): remove itens de menu conversas e pipeline do Sidebar" (item "Conversas" já não existia no Sidebar).
 
 ## F-207 | categoria: funcional | severidade: alta | status: corrigido
 - Arquivo: `components/kanban/KanbanBoard.tsx` (286 linhas; usa `@hello-pangea/dnd`)
@@ -63,26 +65,31 @@
 - Motivo: CRUD de colunas do pipeline — remover 100%.
 - **Correção:** pasta `app/api/pipeline/` removida (2 rotas).
 
-## F-209 | categoria: funcional | severidade: alta | status: aberto
+## F-209 | categoria: funcional | severidade: alta | status: corrigido
 - Arquivo: `prisma/schema.prisma` — model `PipelineColumn` (l.34-44), relação `PipelineColumn.contacts` e campo obrigatório `Contact.columnId` + relação `Contact.column` (l.52, 59)
 - Motivo: estrutura do funil. **BLOQUEADOR:** `Contact.columnId` é NOT NULL e referenciado na criação de contatos pelo webhook (`app/api/whatsapp/webhook/route.ts:113-127`) e provavelmente em `app/contacts` e `app/api/contacts`. Remover exige tornar a criação de contato independente de coluna.
+- **Correção:** model `PipelineColumn`, relação `PipelineColumn.contacts`, campo `Contact.columnId` e relação `Contact.column` removidos do schema. Commit `164faca`. Webhook deixou de depender de `PipelineColumn` para criar contatos (commit `d67884b`, F-212).
+- **precisa-decisão (fora do meu cluster):** ainda restam referências quebradas a `columnId`/`PipelineColumn` que NÃO compilam após o drop, pertencentes a F-214 e correlatos: `app/api/contacts/route.ts:40,47` (`prisma.pipelineColumn.findFirst`, cria contato com `columnId`), `app/api/contacts/[id]/route.ts:36` (`columnId` no update), `app/api/contact-groups/[id]/route.ts:18` (select de `columnId`), `components/individual/ContactCampaignForm.tsx` (fetch `/api/pipeline` + filtro por `columnId`) e `app/contacts/ContactsClient.tsx`. Resolvedor do módulo Contatos (F-214) deve adaptar essas chamadas.
 
 ## F-210 | categoria: dependência | severidade: media | status: corrigido
 - Arquivo: `package.json` — `@hello-pangea/dnd` (^18.0.1)
 - Motivo: dependência usada exclusivamente pelo `KanbanBoard` (pipeline). Pode ser removida após F-207. `socket.io`/`socket.io-client` também merecem verificação — checar se algo além de conversas os usa antes de remover.
 - **Correção:** `@hello-pangea/dnd`, `socket.io` e `socket.io-client` removidos de `package.json`. Verificado via grep que `socket.io` NÃO é usado em nenhum arquivo `.ts/.tsx` (só aparecia em package.json/lock e no contrato) — eram resquícios de conversas em tempo real. `npm install --legacy-peer-deps` rodado: 27 pacotes removidos, `package-lock.json` atualizado.
 
-## F-211 | categoria: funcional | severidade: media | status: aberto
+## F-211 | categoria: funcional | severidade: media | status: corrigido
 - Arquivo: `lib/auth.ts:15-23` — interface `UserPerms` campos `conversations` e `pipeline`
 - Motivo: permissões dos módulos removidos. Limpar também os guards `hasPermission(user, "conversations"|"pipeline")` em `app/conversations/page.tsx:9` e `app/pipeline/page.tsx:9`, e a UI de permissões em `app/settings/SettingsClient.tsx`.
+- **Correção:** campos `conversations` e `pipeline` removidos de `UserPerms` (`lib/auth.ts:15`) — commit `f0a09c7`. Os guards estavam em `app/conversations/page.tsx` e `app/pipeline/page.tsx`, ambas pastas já removidas por outros clusters. UI de permissões: grupos `conversations`/`pipeline`, aba e componente `PipelineSettings`, e tipo `Column` órfão removidos de `app/settings/SettingsClient.tsx` (commit `5f7b2e7`); toggle de conversas removido de `components/settings/ProvidersSettings.tsx` (commit `3fbeb87`); textos residuais em `app/settings/page.tsx` e `app/layout.tsx` atualizados (commit `23c77df`).
 
-## F-212 | categoria: funcional | severidade: alta | status: aberto
+## F-212 | categoria: funcional | severidade: alta | status: corrigido
 - Arquivo: `app/api/whatsapp/webhook/route.ts` — função `handleIncomingMessage` (l.100-154)
 - Motivo: acoplamento. O webhook (1) persiste `Message`, (2) cria `Contact` via `PipelineColumn` default, (3) chama `notifySseClients`. Ao remover conversas+pipeline, toda a lógica de mensagem/SSE sai e a criação de contato precisa parar de depender de `PipelineColumn`. Manter apenas o tratamento de `status`/`qrcode` (l.69-91), que é infra de WhatsApp.
+- **Correção:** removido o import `@/lib/sse-store` (resolve também o import quebrado citado em F-203), a dedup/persistência de `Message`, a chamada a `notifySseClients` e a dependência de `PipelineColumn` na criação de contato. `handleIncomingMessage` agora só cria/atualiza `Contact` (params `waMessageId`/`mediaBase64`/`mediaType` removidos). Tratamento de `status`/`qrcode` intacto. Commit `d67884b` — "fix(F-205): remove persistência de Message e SSE do webhook".
 
-## F-213 | categoria: funcional | severidade: alta | status: aberto
+## F-213 | categoria: funcional | severidade: alta | status: corrigido
 - Arquivo: `app/dashboard/page.tsx`
 - Motivo: o dashboard depende de `prisma.message.count()` (l.12, card "Mensagens") e de `prisma.pipelineColumn.findMany` com `_count.contacts` (l.13 + bloco "Pipeline" l.45-59). Precisa ser reescrito para não referenciar os models removidos.
+- **Correção:** `prisma.message.count()` e `prisma.pipelineColumn.findMany` removidos; cards "Mensagens" e "Colunas do Pipeline" substituídos por "Campanhas" (`prisma.campaign.count()`); bloco de listagem do pipeline removido. Commit `56f5dc8` — "fix(F-231): remove dependências de Message e Pipeline do dashboard".
 
 ## F-214 | categoria: funcional | severidade: media | status: aberto
 - Arquivo: `app/contacts/ContactsClient.tsx` e `app/api/contacts/route.ts` + `app/api/contacts/[id]/route.ts`
@@ -152,23 +159,26 @@
 
 **Modelo:** JWT (`jsonwebtoken`, 7d) em cookie `auth-token`; sessões rastreadas em `UserSession` (revogáveis via `jti`). Papéis: `superadmin` > `admin` > `agent`. Permissões por usuário em `User.permissions` (JSON), opt-out por padrão exceto `individual` (opt-in). Visibilidade de dados: **só `superadmin` vê tudo**; admin e agente são escopados aos próprios ativos (`createdById` / `ownerId`).
 
-## F-400 | categoria: segurança | severidade: alta | status: aberto
+## F-400 | categoria: segurança | severidade: alta | status: corrigido
 - Arquivo: `app/api/users/[id]/route.ts:65` e `app/api/users/route.ts:34-39`
 - Problema: **escalonamento de privilégio.** No PATCH, `if (body.role !== undefined && isAdminOrAbove && !isSelf) data.role = body.role` permite que um **admin** atribua qualquer papel a outro usuário — inclusive `superadmin`. No POST, `role: role || "agent"` aceita `role: "superadmin"` sem restrição para admin. Um admin pode criar/promover um superadmin e assumir controle total.
 - Esperado: só `superadmin` pode conceder/alterar o papel `superadmin` (e idealmente `admin`); admin limitado a gerenciar `agent`.
 - Observado: admin define qualquer papel via POST e PATCH.
+- **Correção:** PATCH (`app/api/users/[id]/route.ts`) — atribuição de papel só ocorre quando `!isSelf && isAdminOrAbove`, e `body.role === "superadmin"` exige `isSuperAdmin` (senão 403). POST (`app/api/users/route.ts`) — `targetRole === "superadmin"` exige `user.role === "superadmin"` (senão 403). Commit `7a9424f` — "fix(F-400,F-401): corrige escalamento de privilégio na gestão de usuários".
 
-## F-401 | categoria: segurança | severidade: alta | status: aberto
+## F-401 | categoria: segurança | severidade: alta | status: corrigido
 - Arquivo: `app/api/users/[id]/route.ts:64-68`
 - Problema: não há proteção do alvo. Um admin pode alterar `role`, `active`, `permissions` e `password` (via PATCH genérico) de **outros admins e do superadmin** (`isAdminOrAbove && !isSelf`). Admin pode **desativar o superadmin** (`active:false`, l.66) ou trocar sua senha.
 - Esperado: admin não pode modificar contas de papel igual/superior; ações sobre `superadmin` restritas a `superadmin`.
 - Observado: PATCH sem verificação do papel do alvo.
+- **Correção:** o PATCH agora busca `targetUser.role` antes de aplicar mudanças; se o alvo for `admin`/`superadmin` e o autor não for `superadmin` (e não for o próprio), retorna 403. Auto-edição (`isSelf`) preservada para não quebrar a edição de perfil. Commit `7a9424f`.
 
-## F-402 | categoria: segurança | severidade: alta | status: aberto
+## F-402 | categoria: segurança | severidade: alta | status: corrigido
 - Arquivo: `lib/auth.ts:5`
 - Problema: `const JWT_SECRET = process.env.JWT_SECRET || "movichat-secret-2024"`. Se a env não estiver definida em produção, o segredo é público/conhecido → qualquer um pode forjar tokens válidos para qualquer usuário/papel.
 - Esperado: falhar o boot se `JWT_SECRET` ausente em produção; nunca usar fallback hardcoded.
 - Observado: fallback estático embutido no código.
+- **Correção:** fallback hardcoded removido; `JWT_SECRET = process.env.JWT_SECRET` e, se ausente, `throw new Error("JWT_SECRET environment variable is not set")` no carregamento do módulo. Commit `f0a09c7` — "fix(F-402): remove JWT_SECRET hardcoded fallback e corrige throttle de lastActiveAt".
 
 ## F-403 | categoria: segurança | severidade: media | status: aberto
 - Arquivo: `app/api/users/route.ts:28-33` e `app/api/users/[id]/route.ts:67`
