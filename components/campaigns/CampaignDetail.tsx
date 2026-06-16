@@ -98,7 +98,7 @@ export default function CampaignDetail({ campaignId, onClose, onAction }: Props)
   useEffect(() => {
     if (!analytics) return;
     if (["running", "scheduled"].includes(analytics.campaign.status)) {
-      pollRef.current = setInterval(load, 8000);
+      pollRef.current = setInterval(load, 30000);
     } else {
       if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
     }

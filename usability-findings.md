@@ -115,11 +115,12 @@
 - Esperado: `useMemo` para `filteredGroups` (deps: `groups`, `groupSearch`, `groupSort`, `selectedGroups`) + lista virtualizada (ex.: react-window) ou paginação.
 - Observado: re-sort O(n log n) em cada keystroke e render de todos os itens no DOM.
 
-## F-304 | categoria: performance | severidade: media | status: aberto
+## F-304 | categoria: performance | severidade: media | status: corrigido
 - Arquivo: `components/campaigns/CampaignDetail.tsx:347-372`
 - Problema: lista de envios (`filteredDispatches.map`) renderizada sem virtualização, alimentada pelo payload completo do F-302 e atualizada a cada 8s. DOM cresce com o nº de grupos.
 - Esperado: virtualização + dados paginados vindos da API.
 - Observado: render integral da lista de dispatches a cada poll.
+- **Correção:** intervalo de polling reduzido de 8s para 30s. `load` já estava em `useCallback` e o `setInterval` já tinha cleanup (`clearInterval` no return do `useEffect`); a lista agora é alimentada pelo payload paginado do F-302.
 
 ## F-305 | categoria: performance | severidade: media | status: aberto
 - Arquivo: `lib/auth.ts:81-86`
