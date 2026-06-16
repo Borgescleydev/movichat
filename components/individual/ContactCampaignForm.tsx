@@ -148,6 +148,7 @@ export default function ContactCampaignForm({ onClose, onSaved, editing, initial
 
   // Data
   const [templates, setTemplates] = useState<ContactTemplate[]>([]);
+  const [loadingTemplates, setLoadingTemplates] = useState(true);
   const [instances, setInstances] = useState<Instance[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [contactGroups, setContactGroups] = useState<ContactGroup[]>([]);
@@ -155,7 +156,11 @@ export default function ContactCampaignForm({ onClose, onSaved, editing, initial
   const [loadingContacts, setLoadingContacts] = useState(false);
 
   useEffect(() => {
-    fetch("/api/individual/templates").then(r => r.ok ? r.json() : []).then(setTemplates);
+    fetch("/api/individual/templates")
+      .then(r => r.ok ? r.json() : [])
+      .then(data => setTemplates(Array.isArray(data) ? data : []))
+      .catch(() => {})
+      .finally(() => setLoadingTemplates(false));
     fetch("/api/providers").then(async r => {
       if (!r.ok) return;
       const providers = await r.json();
@@ -382,7 +387,9 @@ export default function ContactCampaignForm({ onClose, onSaved, editing, initial
 
               <div>
                 <label className="block text-sm font-medium mb-1.5" style={{ color: "var(--text-primary)" }}>Template de Mensagem *</label>
-                {templates.length === 0 ? (
+                {loadingTemplates ? (
+                  <p className="text-sm py-2" style={{ color: "var(--text-muted)" }}>Carregando templates...</p>
+                ) : templates.length === 0 ? (
                   <p className="text-sm py-2" style={{ color: "var(--danger)" }}>Crie um template de contato antes de continuar.</p>
                 ) : (
                   <select
