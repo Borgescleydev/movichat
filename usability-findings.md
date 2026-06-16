@@ -91,9 +91,10 @@
 - Motivo: o dashboard depende de `prisma.message.count()` (l.12, card "Mensagens") e de `prisma.pipelineColumn.findMany` com `_count.contacts` (l.13 + bloco "Pipeline" l.45-59). Precisa ser reescrito para não referenciar os models removidos.
 - **Correção:** `prisma.message.count()` e `prisma.pipelineColumn.findMany` removidos; cards "Mensagens" e "Colunas do Pipeline" substituídos por "Campanhas" (`prisma.campaign.count()`); bloco de listagem do pipeline removido. Commit `56f5dc8` — "fix(F-231): remove dependências de Message e Pipeline do dashboard".
 
-## F-214 | categoria: funcional | severidade: media | status: aberto
+## F-214 | categoria: funcional | severidade: media | status: corrigido
 - Arquivo: `app/contacts/ContactsClient.tsx` e `app/api/contacts/route.ts` + `app/api/contacts/[id]/route.ts`
 - Motivo: o módulo "Contatos" é mantido, mas usa `columnId`/colunas do pipeline (apareceu no grep de `columnId`). Requer adaptação para sobreviver sem `PipelineColumn`. Revisar antes de dropar o campo (ver F-209).
+- **Correção:** referências a `columnId`/`PipelineColumn` removidas de `app/api/contacts/route.ts` (commit `88a7d92`), `app/api/contacts/[id]/route.ts` (`1a60855`), `app/api/contact-groups/[id]/route.ts` (`f4768fe`), `components/individual/ContactCampaignForm.tsx` (`afc6f88`) e `app/contacts/ContactsClient.tsx` (`98b39bd`). Removidos: query `prisma.pipelineColumn.findFirst`, fetch a `/api/pipeline`, includes/selects de `column`, e UI de filtro/seleção por coluna do funil.
 
 ---
 
