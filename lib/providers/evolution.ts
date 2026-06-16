@@ -10,6 +10,10 @@ export class EvolutionApiProvider implements WhatsAppProvider {
     };
   }
 
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
   async createInstance(config: ProviderConfig, instanceName: string, webhookUrl: string): Promise<InstanceInfo> {
     const base = config.baseUrl.replace(/\/$/, "");
 
@@ -300,19 +304,47 @@ export class EvolutionApiProvider implements WhatsAppProvider {
     // Evolution API accepts either "media" (base64 or URL) field
     body.media = mediaData;
 
-    const res = await fetch(`${base}/message/sendMedia/${instanceName}`, {
-      method: "POST",
-      headers: this.headers(config.apiKey),
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(60000),
-    });
-
-    if (!res.ok) {
-      const err = await res.text().catch(() => res.status.toString());
-      throw new Error(`Evolution API: falha ao enviar mídia - ${err}`);
+    // PRÉ-CHECAGEM DE CONEXÃO: não tente enviar se a instância não estiver conectada.
+    // O "Connection Closed" do Baileys/Evolution ocorre quando o socket WhatsApp está
+    // desconectado no momento do envio — falhar cedo com mensagem acionável.
+    const status = await this.getStatus(config, instanceName);
+    if (status !== "connected") {
+      throw new Error(`Evolution API: instância "${instanceName}" não está conectada (status: ${status}). Releia o QR Code e tente novamente.`);
     }
-    const data = await res.json();
-    return { messageId: data.key?.id || "", status: "sent" };
+
+    // RETRY EM "Connection Closed": a conexão pode cair durante o envio (instância
+    // instável ou payload base64 grande). Tenta até 3 vezes, aguardando 1500ms entre elas.
+    const maxAttempts = 3;
+    let lastErrBody = "";
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const res = await fetch(`${base}/message/sendMedia/${instanceName}`, {
+        method: "POST",
+        headers: this.headers(config.apiKey),
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(60000),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        return { messageId: data.key?.id || "", status: "sent" };
+      }
+
+      const err = await res.text().catch(() => res.status.toString());
+      lastErrBody = err;
+      const isConnectionClosed = err.toLowerCase().includes("connection closed");
+
+      // Erros que não sejam "Connection Closed": falha imediata, sem retry.
+      if (!isConnectionClosed) {
+        throw new Error(`Evolution API: falha ao enviar mídia - ${err}`);
+      }
+
+      // "Connection Closed": aguarda e tenta de novo, se ainda houver tentativas.
+      if (attempt < maxAttempts) {
+        await this.sleep(1500);
+      }
+    }
+
+    throw new Error(`Evolution API: a conexão da instância "${instanceName}" caiu durante o envio da mídia após ${maxAttempts} tentativas (instância instável ou mídia muito grande) - ${lastErrBody}`);
   }
 
   async updateWebhook(config: ProviderConfig, instanceName: string, webhookUrl: string): Promise<void> {
