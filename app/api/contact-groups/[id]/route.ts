@@ -15,7 +15,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
       items: {
         include: {
           contact: {
-            select: { id: true, name: true, phone: true, email: true, notes: true, columnId: true, instanceId: true },
+            select: { id: true, name: true, phone: true, email: true, notes: true, instanceId: true },
           },
         },
         orderBy: { createdAt: "asc" },
