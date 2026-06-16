@@ -18,9 +18,6 @@ export async function POST(req: NextRequest) {
       await prisma.user.create({
         data: { name: "Borgescley", username: "borgescley", password: hashed, role: "superadmin" },
       });
-      await prisma.pipelineColumn.create({
-        data: { name: "Novos Contatos", order: 0, isDefault: true, color: "#22c55e" },
-      });
       await prisma.whatsAppSession.upsert({
         where: { id: "default" },
         create: { id: "default", status: "disconnected" },
