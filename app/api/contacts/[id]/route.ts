@@ -10,7 +10,6 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   const contact = await prisma.contact.findUnique({
     where: { id },
     include: {
-      column: true,
       assignedTo: { select: { id: true, name: true } },
       messages: { orderBy: { timestamp: "asc" } },
     },
@@ -33,10 +32,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       ...(body.name !== undefined && { name: body.name }),
       ...(body.email !== undefined && { email: body.email }),
       ...(body.notes !== undefined && { notes: body.notes }),
-      ...(body.columnId !== undefined && { columnId: body.columnId }),
       ...(body.assignedToId !== undefined && { assignedToId: body.assignedToId }),
     },
-    include: { column: true },
   });
 
   return NextResponse.json(contact);
