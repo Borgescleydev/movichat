@@ -16,19 +16,6 @@ export async function seedDatabase() {
     });
   }
 
-  // Create default pipeline column if not exists
-  const cols = await prisma.pipelineColumn.count();
-  if (cols === 0) {
-    await prisma.pipelineColumn.create({
-      data: {
-        name: "Novos Contatos",
-        order: 0,
-        isDefault: true,
-        color: "#22c55e",
-      },
-    });
-  }
-
   // Create WhatsApp session record if not exists
   const session = await prisma.whatsAppSession.findUnique({ where: { id: "default" } });
   if (!session) {
