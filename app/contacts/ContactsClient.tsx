@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
 
 interface Contact {
   id: string;
@@ -10,7 +9,6 @@ interface Contact {
   email?: string;
   updatedAt: string;
   assignedTo?: { id: string; name: string };
-  messages: { body: string; timestamp: string }[];
 }
 
 export default function ContactsClient({ userRole }: { userRole: string }) {
@@ -143,7 +141,6 @@ export default function ContactsClient({ userRole }: { userRole: string }) {
               <tr>
                 <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase">Contato</th>
                 <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase">Telefone</th>
-                <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase">Última mensagem</th>
                 <th className="px-6 py-3" />
               </tr>
             </thead>
@@ -162,17 +159,8 @@ export default function ContactsClient({ userRole }: { userRole: string }) {
                     </div>
                   </td>
                   <td className="px-6 py-4 text-sm text-gray-600">{contact.phone}</td>
-                  <td className="px-6 py-4 text-sm text-gray-500 max-w-xs truncate">
-                    {contact.messages[0]?.body || <span className="text-gray-300">Sem mensagens</span>}
-                  </td>
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-2 justify-end">
-                      <Link
-                        href={`/conversations?contact=${contact.id}`}
-                        className="text-green-600 hover:text-green-700 text-xs font-medium"
-                      >
-                        Conversar
-                      </Link>
                       {isAdmin && (
                         <button
                           onClick={() => deleteContact(contact.id)}
