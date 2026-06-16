@@ -95,11 +95,12 @@
 - Observado: 3 counts por campanha em série de round-trips ao banco remoto.
 - **Correção:** N+1 substituído por 1 `groupBy` de status sobre os IDs da página; adicionada paginação (`?page`/`?limit`, default 20, máx 100) com `skip`/`take` + `count`. Resposta agora `{ data, total, page, limit }`. Consumidores `CampaignsTab.tsx` e `ManualDispatch.tsx` ajustados para ler `json.data`.
 
-## F-301 | categoria: performance | severidade: alta | status: aberto
+## F-301 | categoria: performance | severidade: alta | status: corrigido
 - Arquivo: `app/api/individual/campaigns/route.ts:16,22-31`
 - Problema: mesmo N+1 do F-300 (`3N+1` counts em `ContactCampaignDispatch`). **Pior:** o `include.contacts` (l.16) carrega TODAS as linhas de `ContactCampaignContact` + dados do `Contact` apenas para calcular `totalContacts: c.contacts.length` (l.29). Campanhas individuais costumam ter milhares de contatos → payload e memória enormes na tela de listagem.
 - Esperado: usar `_count: { select: { contacts: true } }` em vez de carregar contatos; agregar dispatches via `groupBy`.
 - Observado: carrega lista completa de contatos de cada campanha + 3 counts por campanha.
+- **Correção:** `include.contacts` removido em favor de `_count.contacts` (`totalContacts`); dispatches agregados via 1 `groupBy`. Como o form de edição dependia de `contacts`, `ContactCampaignsTab.openEdit` passou a buscar o detalhe (`GET /api/individual/campaigns/[id]`) sob demanda.
 
 ## F-302 | categoria: performance | severidade: alta | status: aberto
 - Arquivo: `app/api/campaigns/[id]/analytics/route.ts:20-32` (consumido por `components/campaigns/CampaignDetail.tsx`)

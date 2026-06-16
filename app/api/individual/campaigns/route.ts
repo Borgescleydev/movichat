@@ -13,22 +13,37 @@ export async function GET(req: NextRequest) {
     include: {
       template: { select: { id: true, name: true, mediaType: true } },
       instance: { select: { id: true, label: true, instanceName: true, status: true } },
-      contacts: { include: { contact: { select: { id: true, name: true, phone: true } } } },
-      _count: { select: { dispatches: true } },
+      // Count contacts in the DB instead of loading every ContactCampaignContact row just to call .length.
+      _count: { select: { contacts: true, dispatches: true } },
     },
     orderBy: { createdAt: "desc" },
   });
 
-  const enriched = await Promise.all(
-    campaigns.map(async (c) => {
-      const [sentCount, failedCount, pendingCount] = await Promise.all([
-        prisma.contactCampaignDispatch.count({ where: { campaignId: c.id, status: "sent" } }),
-        prisma.contactCampaignDispatch.count({ where: { campaignId: c.id, status: "failed" } }),
-        prisma.contactCampaignDispatch.count({ where: { campaignId: c.id, status: { in: ["pending", "processing"] } } }),
-      ]);
-      return { ...c, sentCount, failedCount, pendingCount, totalContacts: c.contacts.length };
-    })
-  );
+  // Single groupBy aggregates dispatch status counts for all campaigns, replacing the 3N+1 count queries.
+  const campaignIds = campaigns.map((c) => c.id);
+  const grouped = campaignIds.length
+    ? await prisma.contactCampaignDispatch.groupBy({
+        by: ["campaignId", "status"],
+        where: { campaignId: { in: campaignIds } },
+        _count: { _all: true },
+      })
+    : [];
+
+  const counts = new Map<string, { sent: number; failed: number; pending: number }>();
+  for (const id of campaignIds) counts.set(id, { sent: 0, failed: 0, pending: 0 });
+  for (const row of grouped) {
+    const c = counts.get(row.campaignId);
+    if (!c) continue;
+    const n = row._count._all;
+    if (row.status === "sent") c.sent += n;
+    else if (row.status === "failed") c.failed += n;
+    else if (row.status === "pending" || row.status === "processing") c.pending += n;
+  }
+
+  const enriched = campaigns.map((c) => {
+    const cnt = counts.get(c.id)!;
+    return { ...c, sentCount: cnt.sent, failedCount: cnt.failed, pendingCount: cnt.pending, totalContacts: c._count.contacts };
+  });
 
   return NextResponse.json(enriched);
 }

@@ -32,7 +32,7 @@ interface ContactCampaign {
   totalContacts: number;
   template: { id: string; name: string; mediaType: string | null };
   instance: { id: string; label: string | null; instanceName: string; status: string };
-  contacts: { contact: { id: string; name: string; phone: string } }[];
+  contacts?: { contact: { id: string; name: string; phone: string } }[];
 }
 
 const STATUS_STYLE: Record<string, { label: string; bg: string; color: string; dot: string }> = {
@@ -136,8 +136,15 @@ export default function ContactCampaignsTab({ initialContactGroupId, onInitialCo
     } finally { setActionLoading(null); }
   }
 
-  function openEdit(c: ContactCampaign) {
-    setEditingCampaign(c);
+  async function openEdit(c: ContactCampaign) {
+    // The list no longer carries the full contacts array (F-301); fetch it on demand
+    // from the detail endpoint so the edit form can pre-select the campaign's contacts.
+    let full = c;
+    try {
+      const res = await fetch(`/api/individual/campaigns/${c.id}`);
+      if (res.ok) full = { ...c, ...(await res.json()) };
+    } catch { /* fall back to the list item without contacts */ }
+    setEditingCampaign(full);
     setShowForm(true);
   }
 
