@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 
 interface Template {
   id: string;
@@ -119,6 +119,8 @@ export default function CampaignForm({ onClose, onSaved, editing }: CampaignForm
   const [variableValues, setVariableValues] = useState<Record<string, string>>(editing?.variableValues || {});
 
   // Step 4 — Scheduling
+  // Minimum value (local "now") for datetime-local inputs, so the past can't be picked.
+  const nowLocalMin = useMemo(() => toLocalDatetimeValue(new Date()), []);
   const [sendType, setSendType] = useState(editing?.sendType || "scheduled");
   const [startAt, setStartAt] = useState(editing?.startAt ? toLocalDatetimeValue(editing.startAt) : "");
   const [repeatType, setRepeatType] = useState(editing?.repeatType || "daily");
@@ -748,6 +750,7 @@ export default function CampaignForm({ onClose, onSaved, editing }: CampaignForm
                   <input
                     type="datetime-local"
                     value={startAt}
+                    min={nowLocalMin}
                     onChange={(e) => setStartAt(e.target.value)}
                     className="w-full border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2"
                     style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
@@ -764,6 +767,7 @@ export default function CampaignForm({ onClose, onSaved, editing }: CampaignForm
                     <input
                       type="datetime-local"
                       value={startAt}
+                      min={nowLocalMin}
                       onChange={(e) => setStartAt(e.target.value)}
                       className="w-full border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2"
                       style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
@@ -836,6 +840,7 @@ export default function CampaignForm({ onClose, onSaved, editing }: CampaignForm
                     <input
                       type="datetime-local"
                       value={startAt}
+                      min={nowLocalMin}
                       onChange={(e) => setStartAt(e.target.value)}
                       className="w-full border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2"
                       style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
@@ -901,6 +906,7 @@ export default function CampaignForm({ onClose, onSaved, editing }: CampaignForm
                     <input
                       type="datetime-local"
                       value={startAt}
+                      min={nowLocalMin}
                       onChange={(e) => setStartAt(e.target.value)}
                       className="w-full border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2"
                       style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
