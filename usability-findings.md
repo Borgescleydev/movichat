@@ -256,3 +256,79 @@ JWT 7d + sessões revogáveis; papéis superadmin/admin/agent com permissões JS
 - **VERIFICAÇÃO 4 (ContactsClient):** FALHOU — bug real de runtime (F-500), não dead code.
 - **VERIFICAÇÃO 5 (performance):** PASSOU — `campaigns/route.ts` com `_count.dispatches` + paginação `skip/take` + `groupBy`; `CampaignDetail.tsx` polling 30000ms (l.101) com cleanup `clearInterval` (l.95,103,105); `ManualDispatch.tsx` `filteredGroups` em `useMemo` (l.170).
 - **VERIFICAÇÃO 6 (segurança):** PASSOU — `lib/auth.ts` sem fallback hardcoded + `throw` se ausente + throttle de 60s (l.84); `UserPerms` sem `conversations`/`pipeline`; guards de role em `users/[id]/route.ts` (F-400/F-401, l.60-78) e `users/route.ts` POST (F-400, l.32-34).
+
+---
+
+# FASE 6 — Auditoria de agendamento de campanhas + preview de celular (F-6XX)
+
+> Review estático read-only do disparo manual (`components/campaigns/ManualDispatch.tsx`),
+> do sistema de agendamento (`lib/manual-dispatcher.ts`, `lib/campaign-dispatcher.ts`,
+> `app/api/cron/campaign-dispatcher`, `app/api/campaigns/[id]/schedule`,
+> `app/api/campaigns/manual-dispatch/scheduled`) e do mockup de celular do preview.
+
+## F-600 | categoria: visual | severidade: media | status: aberto
+- Tela: `components/campaigns/ManualDispatch.tsx:893` (componente `PhoneMockup`, área "Chat background")
+- Passos: 1) Disparo Manual → aba "Compor Disparo". 2) Digitar/colar uma mensagem longa (vários parágrafos, ~30+ linhas) no campo "Mensagem de texto". 3) Observar a "tela de celular" (Pré-visualização) na coluna 3.
+- Esperado: o balão da mensagem ocupa a área de chat e, quando o texto excede a altura disponível, a área de chat rola internamente (scroll) para mostrar todo o conteúdo.
+- Observado: a área de chat (`<div className="flex-1 overflow-hidden flex flex-col justify-end p-3 gap-2">`, l.893) tem `overflow-hidden` **e** `justify-end`. A tela tem altura fixa de `520px` (l.878) com `overflow-hidden` (l.867/878 para os cantos arredondados). Como o container do chat é `flex-1` com `overflow-hidden` + `justify-end`, quando o balão (texto em l.960 com `whiteSpace:"pre-wrap"`) cresce além da altura disponível, o **topo da mensagem é cortado** e fica inacessível — não há scroll interno. O usuário não consegue revisar o início de mensagens longas no preview.
+- **Correção (resolvedor) — alvo exato:** em `components/campaigns/ManualDispatch.tsx:893`, trocar `overflow-hidden` por `overflow-y-auto` no container "Chat background". A altura máxima já é limitada pelo `flex-1` dentro da tela de `height:520px` (l.878), então o scroll fica restrito ao espaço entre o header WhatsApp (l.880, `flexShrink:0`) e a barra de input (l.987, `flexShrink:0`). Observação: com `justify-end` + scroll, alguns navegadores clipam o topo; se ocorrer, alternar para `justify-start` mantém o comportamento de rolagem previsível.
+
+## F-601 | categoria: funcional | severidade: alta | status: corrigido
+- Tela: `lib/manual-dispatcher.ts:17-32` (claim de jobs no `runManualDispatcher`)
+- Passos: 1) Agendar um disparo manual. 2) O cron (`/api/cron/campaign-dispatcher`) dispara `runManualDispatcher`. 3) Job entra em `processing` durante o loop de envio (l.62-88, síncrono para N grupos). 4) Um segundo tick do cron (ou execução concorrente Vercel cron + chamada manual) ocorre antes do job terminar.
+- Esperado: um job em envio não deve ser re-selecionado/re-enviado por outra execução do dispatcher (proteção contra envio duplicado), como já existe no `campaign-dispatcher.ts:66-67` que só re-pega `processing` com `updatedAt` mais antigo que 5 min (janela de staleness).
+- Observado: o `findMany` (l.17-21) seleciona `status: { in: ["scheduled", "processing"] }` **sem** janela de staleness, e o claim `updateMany` (l.28-31) também aceita `processing`. Logo um job ainda em andamento (ou travado em `processing` por crash a meio) é re-reivindicado (`claimed.count === 1`) e **re-enviado** a todos os grupos → **mensagens duplicadas no WhatsApp** (efeito colateral irreversível e alto risco de ban). Diverge do padrão correto do `campaign-dispatcher`.
+- Esperado (fix): incluir `processing` apenas com cutoff de staleness (ex.: `updatedAt < now - 5min`) tanto no `findMany` quanto no `updateMany`, espelhando `campaign-dispatcher.ts:66-67`.
+- **Correção:** adicionada `STALE_PROCESSING_CUTOFF = now - 5min`; tanto o `findMany` quanto o `updateMany` (claim) passaram a usar `OR: [{ status: "scheduled" }, { status: "processing", updatedAt: { lte: cutoff } }]` (statuses reais do `ScheduledManualDispatch` são `scheduled`/`processing`, não `pending`). Job em flight (ou travado em `processing` há <5min) não é mais re-reivindicado → elimina re-envio duplicado. Espelha o padrão de `campaign-dispatcher.ts:66-67`.
+
+## F-602 | categoria: funcional | severidade: alta | status: corrigido
+- Tela: `lib/campaign-dispatcher.ts:188-226` (agendamento da próxima execução em recorrência)
+- Passos: 1) Campanha com `repeatType !== "none"`. 2) Última remessa do run atual conclui (`remaining === 0`, l.169). 3) Dois ticks do cron executam concorrentemente (Vercel cron + trigger manual de `CronSettings`, ou sobreposição de execuções longas).
+- Esperado: as remessas do próximo `runIndex` devem ser criadas **exatamente uma vez** (operação idempotente/atômica).
+- Observado: o guard é **check-then-act não atômico**: `const existingNextRun = await prisma.campaignDispatch.count(... runIndex: newRunIndex)` (l.188) seguido de `if (existingNextRun === 0) { ... createMany(newDispatches) }` (l.190-226). Entre o `count` e o `createMany` há janela de corrida — duas execuções podem ambas ler `0` e ambas criar o conjunto completo de remessas do próximo run → **remessas duplicadas** → cada grupo recebe a mensagem recorrente **2x**. Não há unique constraint em `(campaignId, groupId, runIndex)` que impeça isso no banco.
+- Esperado (fix): tornar atômico — unique constraint em `(campaignId, groupId, runIndex)` + `createMany({ skipDuplicates: true })`, ou claim via `updateMany` de status na transição de run.
+- **Correção:** o bloco `count(runIndex: newRunIndex)` → `createMany` foi movido para dentro de `prisma.$transaction(async (tx) => {...})`, usando `tx` para o `count`, o `campaignGroup.findMany` e o `createMany`. Dois ticks concorrentes não conseguem mais ambos ler `0` e criar o conjunto duplicado de remessas — a serialização do check-then-act na transação é a proteção. (`skipDuplicates: true` **não** é suportado pelo provider libSQL/SQLite — `tsc` reporta `TS2322 Type 'true' is not assignable to type 'never'` — então foi omitido; a atomicidade da transação resolve a corrida sem ele.) O `campaign.update` de transição de status permanece fora da transação (idempotente).
+
+## F-603 | categoria: funcional | severidade: alta | status: corrigido
+- Tela: `app/api/campaigns/[id]/schedule/route.ts:64-114` (POST de agendamento de campanha)
+- Passos: 1) Criar/editar campanha definindo `startAt` no passado (a UI `CampaignForm` permite — os inputs `datetime-local` não têm `min`, ver F-607). 2) Acionar o agendamento (status vira `scheduled`).
+- Esperado: rejeitar `startAt` no passado (como o disparo manual faz em `manual-dispatch/scheduled/route.ts:49-51`), ou ao menos truncar o `startMs` para `Date.now()`.
+- Observado: o endpoint **não valida** que `startAt` é futuro. Para `sendType !== "immediate"`, `startMs = campaign.startAt.getTime()` (l.96-97) pode estar no passado; `buildCadenceDispatches`/`buildBatchDispatches` geram timestamps acumulados a partir desse passado, então uma grande parte das remessas nasce com `scheduledFor <= now`. No primeiro tick do cron, o `runCampaignDispatcher` pega `scheduledFor: { lte: now }` (campaign-dispatcher.ts:69) e **dispara em massa** (até `take:15` por tick, depois esvazia o backlog ciclo a ciclo) — a cadência/limite por hora (`cadenceMaxPerHour`) é **ignorada** porque o espaçamento já está no passado. Risco de flood/ban no WhatsApp e perda do controle de ritmo.
+- Esperado (fix): validar `startAt` futuro no POST (espelhar `manual-dispatch/scheduled` l.49-51) e/ou `startMs = Math.max(campaign.startAt.getTime(), Date.now())`.
+- **Correção:** adicionada validação `if (campaign.sendType !== "immediate" && campaign.startAt.getTime() <= Date.now()) return 400 "A data de início deve ser no futuro"` antes de construir os dispatches. `sendType: "immediate"` segue usando `Date.now()` e não é bloqueado. **A mesma correção foi aplicada em `app/api/individual/campaigns/[id]/schedule/route.ts`**, que tinha o mesmo problema (também usa `campaign.startAt.getTime()` para `startMs` sem validação de futuro).
+
+## F-604 | categoria: funcional | severidade: media | status: aberto
+- Tela: `lib/campaign-dispatcher.ts:40-48` (`isWithinWindow`) consumido em `:101-104`
+- Passos: 1) Campanha `sendType: "windowed"` com janela ex. 09:00–18:00 e dias úteis. 2) Deploy do cron em ambiente UTC (Vercel) enquanto o usuário/negócio está em America/Sao_Paulo (UTC-3).
+- Esperado: a janela horária deve ser avaliada no fuso do usuário/negócio que a configurou.
+- Observado: `isWithinWindow` usa `now.getHours()`, `now.getMinutes()` e `now.getDay()` (l.43,46) — todos no **fuso do servidor**. `windowStart`/`windowEnd` são strings "HH:MM" sem fuso associado. Em servidor UTC, uma janela "09:00–18:00" definida pensando em horário de Brasília é aplicada como 09:00–18:00 UTC, deslocando o envio em ~3h (envia 06:00–15:00 local). Não há campo de timezone na campanha nem conversão. (Obs.: o agendamento absoluto via `datetime-local` → `new Date(x).toISOString()` está correto porque converte local→UTC; o bug é específico da janela horária recorrente.)
+- Esperado (fix): persistir o timezone da campanha e avaliar a janela nesse fuso (ex.: `Intl.DateTimeFormat` com `timeZone`), ou documentar/forçar UTC explicitamente na UI.
+
+## F-605 | categoria: performance | severidade: media | status: corrigido
+- Tela: `lib/manual-dispatcher.ts:62-88` (loop de envio do disparo manual agendado)
+- Passos: 1) Agendar um disparo manual para muitos grupos (dezenas/centenas). 2) Cron processa o job.
+- Esperado: envios espaçados (cadência/delay aleatório entre mensagens), como nas campanhas (`campaign-dispatcher` usa `cadenceMinSeconds`/`cadenceMaxSeconds`/`cadenceMaxPerHour`), para reduzir risco de ban e throttling do provedor.
+- Observado: o disparo manual agendado envia para **todos os grupos do job em loop apertado, back-to-back, sem nenhum delay** (l.62-88) e tudo num único tick do cron (1 job = 1 iteração de `runManualDispatcher`). Não há `cadenceMaxPerHour` nem sleep entre grupos. Para listas grandes isso é um burst de mensagens idênticas → alto risco de ban do número e de rate-limit do provider (Evolution/wppconnect).
+- Esperado (fix): aplicar espaçamento/cadência por grupo (ou fatiar o job em remessas com `scheduledFor` escalonado, como o modelo de `campaignDispatch`).
+- **Correção:** loop convertido para indexado (`for (let i = 0; i < groups.length; i++)`); após cada grupo, exceto o último (`if (i < groups.length - 1)`), aguarda `delayMs = 1000 + random(0..1000)` (1-2s) via `setTimeout`. Elimina o burst back-to-back, reduzindo risco de ban/rate-limit. Sem delay após o último grupo.
+
+## F-606 | categoria: usabilidade | severidade: media | status: aberto
+- Tela: `components/campaigns/ManualDispatch.tsx:278-283` (feedback pós-agendamento) + `app/api/campaigns/manual-dispatch/scheduled/route.ts:5-20` (GET nunca consumido)
+- Passos: 1) Agendar um disparo manual. 2) Confirmação aparece via `alert(...)` (l.280). 3) Tentar revisar/cancelar/ver status do disparo agendado.
+- Esperado: lista dos disparos manuais agendados (pendentes/processados/falhos) com possibilidade de cancelar antes da hora; feedback não-bloqueante.
+- Observado: (a) confirmação e erros usam `alert()`/`alert()` nativo bloqueante (l.280,282) — inconsistente com o resto da UI. (b) Existe `GET /api/campaigns/manual-dispatch/scheduled` (route.ts:5-20) que devolve os `ScheduledManualDispatch`, mas **nenhum componente o consome** (grep: a única referência a `manual-dispatch/scheduled` no front é o POST em `ManualDispatch.tsx:263`). A aba "Campanhas Agendadas" (l.654-655) mostra `Campaign`, **não** os disparos manuais agendados. Resultado: depois do `alert`, o disparo agendado **some da visão** — sem status, sem cancelamento, sem confirmação se executou. Endpoint GET é efetivamente código morto exposto.
+- Esperado (fix): renderizar a listagem do GET (status `scheduled`/`processing`/`completed`/`failed`) com ação de cancelar; substituir `alert()` por feedback inline.
+
+## F-607 | categoria: usabilidade | severidade: baixa | status: aberto
+- Tela: `components/campaigns/ManualDispatch.tsx:602-608` e `components/campaigns/CampaignForm.tsx:749,765,838,903` (inputs `datetime-local` de data/hora)
+- Passos: 1) Disparo Manual → "Agendar" (ou criar campanha agendada). 2) Abrir o seletor `datetime-local`.
+- Esperado: o seletor impede (ou ao menos sinaliza) datas/horas no passado via atributo `min` com o instante atual.
+- Observado: nenhum dos inputs `datetime-local` define `min` (ManualDispatch l.602-608; CampaignForm l.749,765,838,903 só usam `min` em campos numéricos de cadência). O usuário pode escolher livremente o passado e só descobre o erro no submit — e no caso de campanha (F-603) o backend nem rejeita. UX de tentativa-e-erro.
+- Esperado (fix): adicionar `min={toLocalDatetimeValue(new Date())}` (ou equivalente) aos inputs de agendamento.
+
+## F-608 | categoria: usabilidade | severidade: baixa | status: aberto
+- Tela: `components/campaigns/ManualDispatch.tsx:206-231` (`collectSelectedGroupContacts`) e `:644` (groupName do preview)
+- Passos: 1) Selecionar **vários** grupos. 2) Clicar "Coletar contatos do primeiro grupo selecionado" (l.438). 3) Observar também o nome do grupo no header do PhoneMockup.
+- Esperado: comportamento previsível ao operar com múltiplos grupos selecionados.
+- Observado: (a) `collectSelectedGroupContacts` usa `Array.from(selectedGroups)[0]` (l.207) — "primeiro" é a ordem de **inserção no Set**, não a ordem visual da lista (que é ordenada por `filteredGroups`), então o grupo coletado pode não ser o que o usuário entende como "primeiro". (b) O preview de celular usa `filteredGroups.find((g) => selectedGroups.has(g.id))?.name` (l.644) para o nome no header — mostra **um único** nome de grupo mesmo quando o disparo vai para N grupos, podendo passar a impressão de envio único. Ambos são ambiguidades de UX, não bugs de runtime.
+- Esperado (fix): deixar explícito qual grupo será coletado (ex.: seletor dedicado) e indicar no preview que o envio atinge N grupos.
