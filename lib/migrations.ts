@@ -172,12 +172,8 @@ const MIGRATIONS = [
     sql: `CREATE UNIQUE INDEX IF NOT EXISTS "ContactGroupItem_contactGroupId_contactId_key" ON "ContactGroupItem"("contactGroupId", "contactId")`,
   },
   // --- ALTER TABLE columns (idempotent: error = already exists, safe to ignore) ---
-  { name: "WhatsAppInstance_conversationsEnabled", sql: `ALTER TABLE "WhatsAppInstance" ADD COLUMN "conversationsEnabled" INTEGER NOT NULL DEFAULT 1` },
   { name: "Contact_instanceId",  sql: `ALTER TABLE "Contact" ADD COLUMN "instanceId" TEXT REFERENCES "WhatsAppInstance"("id") ON DELETE SET NULL ON UPDATE CASCADE` },
   { name: "Contact_lastReadAt",  sql: `ALTER TABLE "Contact" ADD COLUMN "lastReadAt" DATETIME` },
-  { name: "Message_mediaUrl",    sql: `ALTER TABLE "Message" ADD COLUMN "mediaUrl" TEXT` },
-  { name: "Message_mediaType",   sql: `ALTER TABLE "Message" ADD COLUMN "mediaType" TEXT` },
-  { name: "Message_waMessageId", sql: `ALTER TABLE "Message" ADD COLUMN "waMessageId" TEXT` },
   // --- Campaign scheduling columns ---
   { name: "Campaign_channel",              sql: `ALTER TABLE "Campaign" ADD COLUMN "channel" TEXT NOT NULL DEFAULT 'whatsapp'` },
   { name: "Campaign_sendType",             sql: `ALTER TABLE "Campaign" ADD COLUMN "sendType" TEXT NOT NULL DEFAULT 'scheduled'` },
@@ -263,11 +259,6 @@ const MIGRATIONS = [
       '2026-05-14T12:00:00.000Z',
       '2026-05-14T12:00:00.000Z'
     )`,
-  },
-  // --- Desabilitar conversas globalmente ---
-  {
-    name: "WhatsAppInstance_disable_conversations_global",
-    sql: `UPDATE "WhatsAppInstance" SET "conversationsEnabled" = 0`,
   },
   // --- Changelog v1.5.0 ---
   {
