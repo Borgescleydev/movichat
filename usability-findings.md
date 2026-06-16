@@ -48,25 +48,29 @@
 - Arquivo: `prisma/schema.prisma` — campos `Contact.lastReadAt` (l.55) e `WhatsAppInstance.conversationsEnabled` (l.117)
 - Motivo: flags exclusivas de conversas (controle de não-lidas e habilitar chat por instância).
 
-## F-206 | categoria: funcional | severidade: alta | status: aberto
+## F-206 | categoria: funcional | severidade: alta | status: corrigido
 - Arquivo: `app/pipeline/page.tsx`
 - Motivo: página do funil/kanban — remover 100%. Item de menu "Pipeline" em `components/layout/Sidebar.tsx:20-23` também deve sair.
+- **Correção:** pasta `app/pipeline/` removida. O item de menu em `Sidebar.tsx` é de outro cluster (não tocado).
 
-## F-207 | categoria: funcional | severidade: alta | status: aberto
+## F-207 | categoria: funcional | severidade: alta | status: corrigido
 - Arquivo: `components/kanban/KanbanBoard.tsx` (286 linhas; usa `@hello-pangea/dnd`)
 - Motivo: board drag-and-drop do pipeline — único consumidor de `@hello-pangea/dnd`.
+- **Correção:** pasta `components/kanban/` removida.
 
-## F-208 | categoria: funcional | severidade: alta | status: aberto
+## F-208 | categoria: funcional | severidade: alta | status: corrigido
 - Pasta: `app/api/pipeline/` (`route.ts`, `[id]/route.ts`)
 - Motivo: CRUD de colunas do pipeline — remover 100%.
+- **Correção:** pasta `app/api/pipeline/` removida (2 rotas).
 
 ## F-209 | categoria: funcional | severidade: alta | status: aberto
 - Arquivo: `prisma/schema.prisma` — model `PipelineColumn` (l.34-44), relação `PipelineColumn.contacts` e campo obrigatório `Contact.columnId` + relação `Contact.column` (l.52, 59)
 - Motivo: estrutura do funil. **BLOQUEADOR:** `Contact.columnId` é NOT NULL e referenciado na criação de contatos pelo webhook (`app/api/whatsapp/webhook/route.ts:113-127`) e provavelmente em `app/contacts` e `app/api/contacts`. Remover exige tornar a criação de contato independente de coluna.
 
-## F-210 | categoria: dependência | severidade: media | status: aberto
+## F-210 | categoria: dependência | severidade: media | status: corrigido
 - Arquivo: `package.json` — `@hello-pangea/dnd` (^18.0.1)
 - Motivo: dependência usada exclusivamente pelo `KanbanBoard` (pipeline). Pode ser removida após F-207. `socket.io`/`socket.io-client` também merecem verificação — checar se algo além de conversas os usa antes de remover.
+- **Correção:** `@hello-pangea/dnd`, `socket.io` e `socket.io-client` removidos de `package.json`. Verificado via grep que `socket.io` NÃO é usado em nenhum arquivo `.ts/.tsx` (só aparecia em package.json/lock e no contrato) — eram resquícios de conversas em tempo real. `npm install --legacy-peer-deps` rodado: 27 pacotes removidos, `package-lock.json` atualizado.
 
 ## F-211 | categoria: funcional | severidade: media | status: aberto
 - Arquivo: `lib/auth.ts:15-23` — interface `UserPerms` campos `conversations` e `pipeline`
