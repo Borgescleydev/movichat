@@ -14,9 +14,14 @@ export async function runManualDispatcher(): Promise<ManualDispatchRunResult> {
   let errors = 0;
   let skipped = 0;
 
+  const STALE_PROCESSING_CUTOFF = new Date(now.getTime() - 5 * 60 * 1000); // 5 min atrás
+
   const due = await prisma.scheduledManualDispatch.findMany({
     where: {
-      status: { in: ["scheduled", "processing"] },
+      OR: [
+        { status: "scheduled" },
+        { status: "processing", updatedAt: { lte: STALE_PROCESSING_CUTOFF } },
+      ],
       scheduledFor: { lte: now },
     },
     include: { instance: { include: { provider: true } } },
@@ -26,7 +31,13 @@ export async function runManualDispatcher(): Promise<ManualDispatchRunResult> {
 
   for (const job of due) {
     const claimed = await prisma.scheduledManualDispatch.updateMany({
-      where: { id: job.id, status: { in: ["scheduled", "processing"] } },
+      where: {
+        id: job.id,
+        OR: [
+          { status: "scheduled" },
+          { status: "processing", updatedAt: { lte: STALE_PROCESSING_CUTOFF } },
+        ],
+      },
       data: { status: "processing" },
     });
     if (claimed.count === 0) continue;
@@ -59,7 +70,8 @@ export async function runManualDispatcher(): Promise<ManualDispatchRunResult> {
       const hasMedia = Boolean(job.mediaType && job.mediaUrl);
       const results: { groupId: string; name: string; status: "sent" | "failed"; error?: string }[] = [];
 
-      for (const group of groups) {
+      for (let i = 0; i < groups.length; i++) {
+        const group = groups[i];
         try {
           if (hasMedia && provider.sendGroupMedia) {
             await provider.sendGroupMedia(
@@ -84,6 +96,12 @@ export async function runManualDispatcher(): Promise<ManualDispatchRunResult> {
             status: "failed",
             error: e instanceof Error ? e.message : String(e),
           });
+        }
+
+        // Delay randomizado entre grupos para evitar burst (não após o último)
+        if (i < groups.length - 1) {
+          const delayMs = 1000 + Math.floor(Math.random() * 1000); // 1-2s
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
         }
       }
 
