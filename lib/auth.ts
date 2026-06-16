@@ -74,15 +74,18 @@ export async function getAuthUser(): Promise<JWTPayload | null> {
     const { prisma } = await import("./prisma");
     const session = await prisma.userSession.findUnique({
       where: { id: payload.jti },
-      select: { revokedAt: true },
+      select: { revokedAt: true, lastActiveAt: true },
     });
     if (!session || session.revokedAt) return null;
 
-    // Touch lastActiveAt at most once per minute to avoid excessive writes
-    prisma.userSession.update({
-      where: { id: payload.jti },
-      data: { lastActiveAt: new Date() },
-    }).catch(() => {});
+    // Touch lastActiveAt at most once per minute to avoid a DB write on every request.
+    const lastActive = session.lastActiveAt?.getTime() ?? 0;
+    if (Date.now() - lastActive > 60_000) {
+      prisma.userSession.update({
+        where: { id: payload.jti },
+        data: { lastActiveAt: new Date() },
+      }).catch(() => {});
+    }
   }
 
   return payload;

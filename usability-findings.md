@@ -123,11 +123,12 @@
 - Observado: render integral da lista de dispatches a cada poll.
 - **Correção:** intervalo de polling reduzido de 8s para 30s. `load` já estava em `useCallback` e o `setInterval` já tinha cleanup (`clearInterval` no return do `useEffect`); a lista agora é alimentada pelo payload paginado do F-302.
 
-## F-305 | categoria: performance | severidade: media | status: aberto
+## F-305 | categoria: performance | severidade: media | status: corrigido
 - Arquivo: `lib/auth.ts:81-86`
 - Problema: o comentário diz "Touch lastActiveAt at most once per minute", mas o código dispara `prisma.userSession.update({ lastActiveAt: now })` (fire-and-forget) em **toda requisição autenticada** — não há throttle de 1 min. Como `getAuthUser` roda em praticamente todas as rotas/páginas (incl. polling de 8s do CampaignDetail e do dashboard), gera escrita no banco a cada hit, somando latência e carga no Turso.
 - Esperado: só gravar se `lastActiveAt` for mais antigo que ~60s (condição `where` com cutoff) — como o comentário promete.
 - Observado: 1 UPDATE por requisição autenticada, sem throttle.
+- **Correção:** `findUnique` passou a selecionar `lastActiveAt`; o `update` fire-and-forget só dispara quando `Date.now() - lastActiveAt > 60_000`. Elimina o write a cada requisição autenticada.
 
 ## F-306 | categoria: performance | severidade: media | status: aberto
 - Arquivo: `components/campaigns/ManualDispatch.tsx:148-156` (`handleFileSelect` → `readAsDataURL`)
