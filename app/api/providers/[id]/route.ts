@@ -85,14 +85,13 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
       await prisma.contactCampaign.deleteMany({ where: { id: { in: ccIds } } });
     }
 
-    // Delete conversations (messages) for contacts of this instance, then unlink contacts
+    // Unlink contacts from this instance
     const contacts = await prisma.contact.findMany({
       where: { instanceId },
       select: { id: true },
     });
     const contactIds = contacts.map((c) => c.id);
     if (contactIds.length > 0) {
-      await prisma.message.deleteMany({ where: { contactId: { in: contactIds } } });
       await prisma.contact.updateMany({ where: { id: { in: contactIds } }, data: { instanceId: null } });
     }
   }
