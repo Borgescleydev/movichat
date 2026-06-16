@@ -28,7 +28,6 @@ interface Instance {
   phone?: string;
   qrCode?: string;
   createdAt: string;
-  conversationsEnabled: boolean;
   providerId?: string;
   ownerId?: string;
   ownerName?: string;
@@ -927,21 +926,6 @@ export default function ProvidersSettings() {
               onLoadRemote={() => loadRemoteInstances(provider.id)}
               onImport={() => importInstances(provider.id)}
               onEdit={() => openEdit(provider)}
-              onToggleConversations={(inst) => {
-                const updated = { ...inst, conversationsEnabled: !inst.conversationsEnabled };
-                fetch(`/api/providers/${provider.id}/instances/${inst.id}`, {
-                  method: "PATCH",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ conversationsEnabled: updated.conversationsEnabled }),
-                }).then(() => {
-                  setProviders((prev) => prev.map((p) =>
-                    p.id !== provider.id ? p : {
-                      ...p,
-                      instances: p.instances.map((i) => i.id === inst.id ? updated : i),
-                    }
-                  ));
-                });
-              }}
             />
           ))}
         </div>
@@ -950,7 +934,7 @@ export default function ProvidersSettings() {
   );
 }
 
-function ProviderCard({ provider, currentUser, isAdmin, connecting, ping, remote, importingState, importMsg, onConnect, onDisconnect, onDeleteInstance, onAssignUser, onDelete, onToggle, onSetDefault, onStartPolling, onPing, onLoadRemote, onImport, onEdit, onToggleConversations }: {
+function ProviderCard({ provider, currentUser, isAdmin, connecting, ping, remote, importingState, importMsg, onConnect, onDisconnect, onDeleteInstance, onAssignUser, onDelete, onToggle, onSetDefault, onStartPolling, onPing, onLoadRemote, onImport, onEdit }: {
   provider: Provider;
   currentUser: { userId: string; role: string } | null;
   isAdmin: boolean;
@@ -971,7 +955,6 @@ function ProviderCard({ provider, currentUser, isAdmin, connecting, ping, remote
   onLoadRemote: () => void;
   onImport: () => void;
   onEdit: () => void;
-  onToggleConversations: (inst: Instance) => void;
 }) {
   const isSuperAdmin = currentUser?.role === "superadmin";
   const typeInfo = PROVIDER_TYPES.find((t) => t.value === provider.type);
@@ -1224,7 +1207,6 @@ function ProviderCard({ provider, currentUser, isAdmin, connecting, ping, remote
               onDeleteInstance={() => onDeleteInstance(inst)}
               onAssignUser={() => onAssignUser(inst)}
               onStartPolling={() => onStartPolling(inst.id)}
-              onToggleConversations={() => onToggleConversations(inst)}
             />
           ))}
         </div>
@@ -1233,7 +1215,7 @@ function ProviderCard({ provider, currentUser, isAdmin, connecting, ping, remote
   );
 }
 
-function InstanceRow({ instance, showOwner, isAdmin, onDisconnect, onDeleteInstance, onAssignUser, onStartPolling, onToggleConversations }: {
+function InstanceRow({ instance, showOwner, isAdmin, onDisconnect, onDeleteInstance, onAssignUser, onStartPolling }: {
   instance: Instance;
   showOwner?: boolean;
   isAdmin?: boolean;
@@ -1241,7 +1223,6 @@ function InstanceRow({ instance, showOwner, isAdmin, onDisconnect, onDeleteInsta
   onDeleteInstance: () => void;
   onAssignUser: () => void;
   onStartPolling: () => void;
-  onToggleConversations: () => void;
 }) {
   const [showQr, setShowQr] = useState(false);
 
@@ -1308,21 +1289,6 @@ function InstanceRow({ instance, showOwner, isAdmin, onDisconnect, onDeleteInsta
 
         {/* Actions */}
         <div className="flex items-center gap-2 flex-shrink-0">
-          {/* Conversations toggle */}
-          <button
-            onClick={onToggleConversations}
-            title={instance.conversationsEnabled ? "Desabilitar conversas" : "Habilitar conversas"}
-            className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border transition-colors"
-            style={instance.conversationsEnabled
-              ? { borderColor: "var(--primary)", color: "var(--primary)", backgroundColor: "var(--primary-light)" }
-              : { borderColor: "var(--border)", color: "var(--text-muted)", backgroundColor: "transparent" }}
-          >
-            <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/>
-            </svg>
-            {instance.conversationsEnabled ? "Conversas ativa" : "Conversas off"}
-          </button>
-
           {instance.status === "connecting" && qrSrc && (
             <button
               onClick={() => setShowQr(!showQr)}
