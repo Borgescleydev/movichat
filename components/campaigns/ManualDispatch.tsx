@@ -19,6 +19,14 @@ interface ContactGroup {
 interface Template { id: string; name: string; body: string; variables: string; mediaType: string | null; mediaUrl: string | null; mediaCaption: string | null; }
 interface DispatchResult { groupId: string; name: string; status: "sent" | "failed"; error?: string; }
 interface Campaign { id: string; name: string; status: string; sentCount: number; failedCount: number; pendingCount: number; totalGroups: number; }
+interface ScheduledDispatch {
+  id: string;
+  message: string;
+  groupIds: string;
+  scheduledFor: string;
+  status: string;
+  instance?: { label: string | null; instanceName: string; status: string };
+}
 
 type MediaTab = "none" | "image" | "video" | "document" | "audio";
 
@@ -75,6 +83,22 @@ export default function ManualDispatch() {
   const [scheduledFor, setScheduledFor] = useState("");
   const msgRef = useRef<HTMLTextAreaElement | null>(null);
 
+  // Minimum value (local "now") for the datetime-local input, so the past can't be picked.
+  const nowLocalMin = useMemo(
+    () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16),
+    []
+  );
+
+  // Scheduled manual dispatches (F-606)
+  const [scheduledDispatches, setScheduledDispatches] = useState<ScheduledDispatch[]>([]);
+  const [feedback, setFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const feedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showFeedback = useCallback((type: "success" | "error", text: string) => {
+    setFeedback({ type, text });
+    if (feedbackTimer.current) clearTimeout(feedbackTimer.current);
+    feedbackTimer.current = setTimeout(() => setFeedback(null), 4000);
+  }, []);
+
   const loadInstances = useCallback(async () => {
     setLoadingInst(true);
     const res = await fetch("/api/providers");
@@ -130,7 +154,15 @@ export default function ManualDispatch() {
     }
   }, []);
 
-  useEffect(() => { loadInstances(); loadTemplates(); loadCampaigns(); loadDispatchGroups(); loadContactGroups(); }, []);
+  const loadScheduledDispatches = useCallback(async () => {
+    const res = await fetch("/api/campaigns/manual-dispatch/scheduled");
+    if (res.ok) {
+      const data = await res.json();
+      setScheduledDispatches(data.schedules || []);
+    }
+  }, []);
+
+  useEffect(() => { loadInstances(); loadTemplates(); loadCampaigns(); loadDispatchGroups(); loadContactGroups(); loadScheduledDispatches(); }, []);
   useEffect(() => { loadGroups(); }, [selectedInstance]);
 
   // Apply template
@@ -277,9 +309,10 @@ export default function ManualDispatch() {
       const data = await res.json();
       if (res.ok && dispatchMode === "scheduled") {
         setResults(null);
-        alert(`Disparo agendado para ${new Date(data.scheduledFor).toLocaleString("pt-BR")}.`);
+        showFeedback("success", `Disparo agendado para ${new Date(data.scheduledFor).toLocaleString("pt-BR")}.`);
+        loadScheduledDispatches();
       } else if (res.ok) setResults(data.results || []);
-      else alert(data.error || "Erro ao disparar");
+      else showFeedback("error", data.error || "Erro ao disparar");
     } finally { setSending(false); }
   }
 
@@ -602,12 +635,23 @@ export default function ManualDispatch() {
                 <input
                   type="datetime-local"
                   value={scheduledFor}
+                  min={nowLocalMin}
                   onChange={(e) => setScheduledFor(e.target.value)}
                   className="w-full text-sm rounded-lg px-3 py-2 outline-none"
                   style={{ border: "1px solid var(--border)", color: "var(--text-primary)", backgroundColor: "var(--page-bg)" }}
                 />
               )}
             </div>
+
+            {/* Inline feedback (replaces blocking alert) */}
+            {feedback && (
+              <div className="rounded-xl px-4 py-3 text-sm font-medium"
+                style={feedback.type === "success"
+                  ? { backgroundColor: "rgba(34,197,94,0.12)", color: "#15803d", border: "1px solid rgba(34,197,94,0.3)" }
+                  : { backgroundColor: "rgba(244,63,94,0.12)", color: "#be123c", border: "1px solid rgba(244,63,94,0.3)" }}>
+                {feedback.text}
+              </div>
+            )}
 
             {/* Send button */}
             <button onClick={dispatch} disabled={sending || !canSend}
@@ -630,6 +674,9 @@ export default function ManualDispatch() {
 
             {/* Results */}
             {results && <DispatchResults results={results} />}
+
+            {/* Agendamentos pendentes (F-606) */}
+            <PendingSchedules schedules={scheduledDispatches} />
           </div>
 
           {/* ─── COL 3: Phone Mockup ─── */}
@@ -654,6 +701,47 @@ export default function ManualDispatch() {
       {activeSection === "campaigns" && (
         <CampaignDispatchView campaigns={campaigns} onRefresh={loadCampaigns} />
       )}
+    </div>
+  );
+}
+
+// ─── PendingSchedules (F-606) ───────────────────────────────
+function parseGroupCount(groupIds: string): number {
+  try { const arr = JSON.parse(groupIds); return Array.isArray(arr) ? arr.length : 0; } catch { return 0; }
+}
+
+const SCHEDULE_STATUS_LABEL: Record<string, string> = {
+  scheduled: "Agendado",
+  processing: "Enviando",
+};
+
+function PendingSchedules({ schedules }: { schedules: ScheduledDispatch[] }) {
+  const pending = schedules.filter((s) => s.status === "scheduled" || s.status === "processing");
+  if (pending.length === 0) return null;
+
+  return (
+    <div className="rounded-2xl p-4 space-y-3" style={{ border: "1px solid var(--border)", backgroundColor: "var(--card-bg)" }}>
+      <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>📅 Agendamentos pendentes</p>
+      <div className="space-y-2">
+        {pending.map((s) => (
+          <div key={s.id} className="flex items-center justify-between gap-3 rounded-lg px-3 py-2"
+            style={{ border: "1px solid var(--border)", backgroundColor: "var(--page-bg)" }}>
+            <div className="min-w-0">
+              <p className="text-sm font-medium truncate" style={{ color: "var(--text-primary)" }}>
+                {new Date(s.scheduledFor).toLocaleString("pt-BR")}
+              </p>
+              <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                {parseGroupCount(s.groupIds)} grupo{parseGroupCount(s.groupIds) !== 1 ? "s" : ""}
+                {s.instance ? ` · ${s.instance.label || s.instance.instanceName}` : ""}
+              </p>
+            </div>
+            <span className="text-xs font-semibold px-2 py-1 rounded-full flex-shrink-0"
+              style={{ backgroundColor: "var(--border)", color: "var(--text-secondary)" }}>
+              {SCHEDULE_STATUS_LABEL[s.status] || s.status}
+            </span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -890,13 +978,14 @@ function PhoneMockup({ message, mediaTab, mediaPreview, mediaCaption, mediaFileN
             </div>
 
             {/* Chat background */}
-            <div className="flex-1 overflow-hidden flex flex-col justify-end p-3 gap-2"
+            <div className="flex-1 overflow-y-auto flex flex-col p-3 gap-2"
               style={{
                 backgroundColor: "#e5ddd5",
                 backgroundImage: "url(\"data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23c9bbaa' fill-opacity='0.3'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E\")",
               }}>
-              {/* Previous message placeholder */}
-              <div className="flex justify-start mb-1">
+              {/* Previous message placeholder — mt-auto keeps the chat bottom-anchored
+                  while still allowing the top to scroll into view for long messages. */}
+              <div className="flex justify-start mb-1 mt-auto">
                 <div className="rounded-lg px-2.5 py-1.5 max-w-[75%]" style={{ backgroundColor: "#fff", fontSize: "11px" }}>
                   <p style={{ color: "#25d366", fontWeight: 600, fontSize: "10px" }}>João Silva</p>
                   <p style={{ color: "#333" }}>Bom dia pessoal! 👋</p>

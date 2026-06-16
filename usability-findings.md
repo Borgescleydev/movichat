@@ -266,12 +266,13 @@ JWT 7d + sessões revogáveis; papéis superadmin/admin/agent com permissões JS
 > `app/api/cron/campaign-dispatcher`, `app/api/campaigns/[id]/schedule`,
 > `app/api/campaigns/manual-dispatch/scheduled`) e do mockup de celular do preview.
 
-## F-600 | categoria: visual | severidade: media | status: aberto
+## F-600 | categoria: visual | severidade: media | status: corrigido
 - Tela: `components/campaigns/ManualDispatch.tsx:893` (componente `PhoneMockup`, área "Chat background")
 - Passos: 1) Disparo Manual → aba "Compor Disparo". 2) Digitar/colar uma mensagem longa (vários parágrafos, ~30+ linhas) no campo "Mensagem de texto". 3) Observar a "tela de celular" (Pré-visualização) na coluna 3.
 - Esperado: o balão da mensagem ocupa a área de chat e, quando o texto excede a altura disponível, a área de chat rola internamente (scroll) para mostrar todo o conteúdo.
 - Observado: a área de chat (`<div className="flex-1 overflow-hidden flex flex-col justify-end p-3 gap-2">`, l.893) tem `overflow-hidden` **e** `justify-end`. A tela tem altura fixa de `520px` (l.878) com `overflow-hidden` (l.867/878 para os cantos arredondados). Como o container do chat é `flex-1` com `overflow-hidden` + `justify-end`, quando o balão (texto em l.960 com `whiteSpace:"pre-wrap"`) cresce além da altura disponível, o **topo da mensagem é cortado** e fica inacessível — não há scroll interno. O usuário não consegue revisar o início de mensagens longas no preview.
 - **Correção (resolvedor) — alvo exato:** em `components/campaigns/ManualDispatch.tsx:893`, trocar `overflow-hidden` por `overflow-y-auto` no container "Chat background". A altura máxima já é limitada pelo `flex-1` dentro da tela de `height:520px` (l.878), então o scroll fica restrito ao espaço entre o header WhatsApp (l.880, `flexShrink:0`) e a barra de input (l.987, `flexShrink:0`). Observação: com `justify-end` + scroll, alguns navegadores clipam o topo; se ocorrer, alternar para `justify-start` mantém o comportamento de rolagem previsível.
+- **Correção:** container "Chat background" trocado para `overflow-y-auto` e `justify-end` removido; o ancoramento à base (mensagens no rodapé) passou a ser feito com `mt-auto` no primeiro filho (placeholder de mensagem anterior). Essa abordagem evita o bug conhecido de `justify-end` + `overflow:auto` que clipa o topo em alguns navegadores — agora mensagens longas rolam do topo à base. Header e barra de input (`flexShrink:0`) seguem fixos.
 
 ## F-601 | categoria: funcional | severidade: alta | status: corrigido
 - Tela: `lib/manual-dispatcher.ts:17-32` (claim de jobs no `runManualDispatcher`)
@@ -312,19 +313,22 @@ JWT 7d + sessões revogáveis; papéis superadmin/admin/agent com permissões JS
 - Esperado (fix): aplicar espaçamento/cadência por grupo (ou fatiar o job em remessas com `scheduledFor` escalonado, como o modelo de `campaignDispatch`).
 - **Correção:** loop convertido para indexado (`for (let i = 0; i < groups.length; i++)`); após cada grupo, exceto o último (`if (i < groups.length - 1)`), aguarda `delayMs = 1000 + random(0..1000)` (1-2s) via `setTimeout`. Elimina o burst back-to-back, reduzindo risco de ban/rate-limit. Sem delay após o último grupo.
 
-## F-606 | categoria: usabilidade | severidade: media | status: aberto
+## F-606 | categoria: usabilidade | severidade: media | status: corrigido
 - Tela: `components/campaigns/ManualDispatch.tsx:278-283` (feedback pós-agendamento) + `app/api/campaigns/manual-dispatch/scheduled/route.ts:5-20` (GET nunca consumido)
 - Passos: 1) Agendar um disparo manual. 2) Confirmação aparece via `alert(...)` (l.280). 3) Tentar revisar/cancelar/ver status do disparo agendado.
 - Esperado: lista dos disparos manuais agendados (pendentes/processados/falhos) com possibilidade de cancelar antes da hora; feedback não-bloqueante.
 - Observado: (a) confirmação e erros usam `alert()`/`alert()` nativo bloqueante (l.280,282) — inconsistente com o resto da UI. (b) Existe `GET /api/campaigns/manual-dispatch/scheduled` (route.ts:5-20) que devolve os `ScheduledManualDispatch`, mas **nenhum componente o consome** (grep: a única referência a `manual-dispatch/scheduled` no front é o POST em `ManualDispatch.tsx:263`). A aba "Campanhas Agendadas" (l.654-655) mostra `Campaign`, **não** os disparos manuais agendados. Resultado: depois do `alert`, o disparo agendado **some da visão** — sem status, sem cancelamento, sem confirmação se executou. Endpoint GET é efetivamente código morto exposto.
 - Esperado (fix): renderizar a listagem do GET (status `scheduled`/`processing`/`completed`/`failed`) com ação de cancelar; substituir `alert()` por feedback inline.
+- **Correção:** (a) `alert()` de sucesso/erro substituído por `div` de feedback inline (`feedback` state + `showFeedback`) com estilo de sucesso/erro que some após 4s. (b) Novo componente `PendingSchedules` consome `GET /api/campaigns/manual-dispatch/scheduled` (state `scheduledDispatches`, fetch no `useEffect` inicial e refresh após agendar) e renderiza "📅 Agendamentos pendentes" abaixo do form, mostrando data/hora, nº de grupos, instância e status (`scheduled`/`processing`). A API GET não aceita filtro por `campaignId` e o model `ScheduledManualDispatch` não tem associação a `Campaign`, então a lista é escopada por usuário (como a API já faz), não por campanha.
+- **precisa-decisão:** botão "Cancelar" NÃO implementado — o endpoint `DELETE /api/campaigns/manual-dispatch/scheduled/[id]` não existe (só há `route.ts` com GET/POST, sem rota `[id]`). Criar a rota DELETE (e decidir regras de permissão/estado: só cancelar `scheduled`, não `processing`) ficou pendente de decisão. Até lá a lista é somente-leitura.
 
-## F-607 | categoria: usabilidade | severidade: baixa | status: aberto
+## F-607 | categoria: usabilidade | severidade: baixa | status: corrigido
 - Tela: `components/campaigns/ManualDispatch.tsx:602-608` e `components/campaigns/CampaignForm.tsx:749,765,838,903` (inputs `datetime-local` de data/hora)
 - Passos: 1) Disparo Manual → "Agendar" (ou criar campanha agendada). 2) Abrir o seletor `datetime-local`.
 - Esperado: o seletor impede (ou ao menos sinaliza) datas/horas no passado via atributo `min` com o instante atual.
 - Observado: nenhum dos inputs `datetime-local` define `min` (ManualDispatch l.602-608; CampaignForm l.749,765,838,903 só usam `min` em campos numéricos de cadência). O usuário pode escolher livremente o passado e só descobre o erro no submit — e no caso de campanha (F-603) o backend nem rejeita. UX de tentativa-e-erro.
 - Esperado (fix): adicionar `min={toLocalDatetimeValue(new Date())}` (ou equivalente) aos inputs de agendamento.
+- **Correção:** `min={nowLocalMin}` (instante local atual no formato `datetime-local`, memoizado via `useMemo`) adicionado ao input de agendamento do `ManualDispatch` e aos 4 inputs de "Data e hora de início" do `CampaignForm` (scheduled/recurring/windowed/batch). No `ManualDispatch` o valor é calculado pela fórmula do contrato; no `CampaignForm` reusa o helper existente `toLocalDatetimeValue(new Date())`. O seletor passa a impedir datas/horas no passado na UI.
 
 ## F-608 | categoria: usabilidade | severidade: baixa | status: aberto
 - Tela: `components/campaigns/ManualDispatch.tsx:206-231` (`collectSelectedGroupContacts`) e `:644` (groupName do preview)
