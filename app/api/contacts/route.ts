@@ -21,7 +21,6 @@ export async function GET(req: NextRequest) {
     orderBy: { updatedAt: "desc" },
     include: {
       assignedTo: { select: { id: true, name: true } },
-      messages: { orderBy: { timestamp: "desc" }, take: 1 },
     },
   });
 
