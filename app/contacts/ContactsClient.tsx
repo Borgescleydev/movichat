@@ -9,7 +9,6 @@ interface Contact {
   phone: string;
   email?: string;
   updatedAt: string;
-  column: { id: string; name: string; color: string };
   assignedTo?: { id: string; name: string };
   messages: { body: string; timestamp: string }[];
 }
@@ -144,7 +143,6 @@ export default function ContactsClient({ userRole }: { userRole: string }) {
               <tr>
                 <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase">Contato</th>
                 <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase">Telefone</th>
-                <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase">Etapa</th>
                 <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase">Última mensagem</th>
                 <th className="px-6 py-3" />
               </tr>
@@ -164,14 +162,6 @@ export default function ContactsClient({ userRole }: { userRole: string }) {
                     </div>
                   </td>
                   <td className="px-6 py-4 text-sm text-gray-600">{contact.phone}</td>
-                  <td className="px-6 py-4">
-                    <span
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium text-white"
-                      style={{ backgroundColor: contact.column.color }}
-                    >
-                      {contact.column.name}
-                    </span>
-                  </td>
                   <td className="px-6 py-4 text-sm text-gray-500 max-w-xs truncate">
                     {contact.messages[0]?.body || <span className="text-gray-300">Sem mensagens</span>}
                   </td>
