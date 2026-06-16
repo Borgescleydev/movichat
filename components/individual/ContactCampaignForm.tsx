@@ -59,7 +59,7 @@ interface ContactCampaign {
   batchIntervalMinutes?: number | null;
   repeatEveryX?: number | null;
   repeatEveryUnit?: string | null;
-  contacts: { contact: { id: string; name: string; phone: string } }[];
+  contacts?: { contact: { id: string; name: string; phone: string } }[];
 }
 
 interface ContactCampaignFormProps {
