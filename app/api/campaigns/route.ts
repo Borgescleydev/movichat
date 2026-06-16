@@ -7,31 +7,55 @@ export async function GET(req: NextRequest) {
   if (!user) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
 
   const status = req.nextUrl.searchParams.get("status");
+  const page = Math.max(1, parseInt(req.nextUrl.searchParams.get("page") || "1", 10) || 1);
+  const limit = Math.min(100, Math.max(1, parseInt(req.nextUrl.searchParams.get("limit") || "20", 10) || 20));
   const ownerFilter = isSuperAdmin(user) ? {} : { createdById: user.userId };
-  const campaigns = await prisma.campaign.findMany({
-    where: { ...ownerFilter, ...(status ? { status } : {}) },
-    include: {
-      template: { select: { id: true, name: true, mediaType: true } },
-      instance: { select: { id: true, label: true, instanceName: true, status: true } },
-      groups: { include: { group: { select: { id: true, name: true, groupJid: true } } } },
-      _count: { select: { dispatches: true } },
-    },
-    orderBy: { createdAt: "desc" },
+  const where = { ...ownerFilter, ...(status ? { status } : {}) };
+
+  const [total, campaigns] = await Promise.all([
+    prisma.campaign.count({ where }),
+    prisma.campaign.findMany({
+      where,
+      include: {
+        template: { select: { id: true, name: true, mediaType: true } },
+        instance: { select: { id: true, label: true, instanceName: true, status: true } },
+        groups: { include: { group: { select: { id: true, name: true, groupJid: true } } } },
+        _count: { select: { dispatches: true } },
+      },
+      orderBy: { createdAt: "desc" },
+      skip: (page - 1) * limit,
+      take: limit,
+    }),
+  ]);
+
+  // Single groupBy aggregates dispatch status counts for all campaigns on this page,
+  // replacing the previous 3N+1 per-campaign count queries.
+  const campaignIds = campaigns.map((c) => c.id);
+  const grouped = campaignIds.length
+    ? await prisma.campaignDispatch.groupBy({
+        by: ["campaignId", "status"],
+        where: { campaignId: { in: campaignIds } },
+        _count: { _all: true },
+      })
+    : [];
+
+  const counts = new Map<string, { sent: number; failed: number; pending: number }>();
+  for (const id of campaignIds) counts.set(id, { sent: 0, failed: 0, pending: 0 });
+  for (const row of grouped) {
+    const c = counts.get(row.campaignId);
+    if (!c) continue;
+    const n = row._count._all;
+    if (row.status === "sent") c.sent += n;
+    else if (row.status === "failed") c.failed += n;
+    else if (row.status === "pending" || row.status === "processing") c.pending += n;
+  }
+
+  const data = campaigns.map((c) => {
+    const cnt = counts.get(c.id)!;
+    return { ...c, sentCount: cnt.sent, failedCount: cnt.failed, pendingCount: cnt.pending, totalGroups: c.groups.length };
   });
 
-  const enriched = await Promise.all(
-    campaigns.map(async (c) => {
-      const [sentCount, failedCount, pendingCount] = await Promise.all([
-        prisma.campaignDispatch.count({ where: { campaignId: c.id, status: "sent" } }),
-        prisma.campaignDispatch.count({ where: { campaignId: c.id, status: "failed" } }),
-        prisma.campaignDispatch.count({ where: { campaignId: c.id, status: { in: ["pending", "processing"] } } }),
-      ]);
-      const totalGroups = c.groups.length;
-      return { ...c, sentCount, failedCount, pendingCount, totalGroups };
-    })
-  );
-
-  return NextResponse.json(enriched);
+  return NextResponse.json({ data, total, page, limit });
 }
 
 export async function POST(req: NextRequest) {

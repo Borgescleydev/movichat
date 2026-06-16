@@ -78,7 +78,10 @@ export default function CampaignsTab() {
   const loadCampaigns = useCallback(async () => {
     const url = statusFilter === "all" ? "/api/campaigns" : `/api/campaigns?status=${statusFilter}`;
     const res = await fetch(url);
-    if (res.ok) setCampaigns(await res.json());
+    if (res.ok) {
+      const json = await res.json();
+      setCampaigns(json.data ?? []);
+    }
     setLoading(false);
   }, [statusFilter]);
 

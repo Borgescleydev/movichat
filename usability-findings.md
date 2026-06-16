@@ -88,11 +88,12 @@
 
 # FASE 3 — Diagnóstico de performance (campanhas) (F-3XX)
 
-## F-300 | categoria: performance | severidade: alta | status: aberto
+## F-300 | categoria: performance | severidade: alta | status: corrigido
 - Arquivo: `app/api/campaigns/route.ts:22-32`
 - Problema: **N+1 de queries**. Para cada campanha são feitas 3 `count` (`sent`/`failed`/`pending`) dentro de `Promise.all(campaigns.map(...))` → `3N + 1` queries por carregamento da lista. Com Turso (libSQL remoto), cada query tem latência de rede; a lista de campanhas fica lenta proporcionalmente ao número de campanhas.
 - Esperado: 1–2 queries totais usando `prisma.campaignDispatch.groupBy({ by: ['campaignId','status'], where: { campaignId: { in } }, _count: true })` e agregação em memória.
 - Observado: 3 counts por campanha em série de round-trips ao banco remoto.
+- **Correção:** N+1 substituído por 1 `groupBy` de status sobre os IDs da página; adicionada paginação (`?page`/`?limit`, default 20, máx 100) com `skip`/`take` + `count`. Resposta agora `{ data, total, page, limit }`. Consumidores `CampaignsTab.tsx` e `ManualDispatch.tsx` ajustados para ler `json.data`.
 
 ## F-301 | categoria: performance | severidade: alta | status: aberto
 - Arquivo: `app/api/individual/campaigns/route.ts:16,22-31`

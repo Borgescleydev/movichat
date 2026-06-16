@@ -108,7 +108,10 @@ export default function ManualDispatch() {
 
   const loadCampaigns = useCallback(async () => {
     const res = await fetch("/api/campaigns");
-    if (res.ok) setCampaigns(await res.json());
+    if (res.ok) {
+      const json = await res.json();
+      setCampaigns(json.data ?? []);
+    }
   }, []);
 
   const loadDispatchGroups = useCallback(async () => {
