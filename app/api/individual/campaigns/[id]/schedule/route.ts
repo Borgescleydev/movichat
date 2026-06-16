@@ -85,6 +85,9 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
   if (campaign.instance.status !== "connected") {
     return NextResponse.json({ error: "A instância WhatsApp não está conectada" }, { status: 400 });
   }
+  if (campaign.sendType !== "immediate" && campaign.startAt.getTime() <= Date.now()) {
+    return NextResponse.json({ error: "A data de início deve ser no futuro" }, { status: 400 });
+  }
 
   const runIndex = campaign.runCount;
   const contactIds = campaign.contacts.map((c) => c.contactId);
