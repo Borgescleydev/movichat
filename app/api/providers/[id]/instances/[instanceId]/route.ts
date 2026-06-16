@@ -5,7 +5,7 @@ import { getProvider } from "@/lib/providers";
 
 /**
  * Removes all FK-constrained records that block a WhatsAppInstance deletion,
- * including messages/conversations linked to contacts of this instance.
+ * then unlinks contacts of this instance.
  */
 async function purgeInstanceDependents(instanceId: string) {
   // 1. Groups belonging to this instance
@@ -45,14 +45,13 @@ async function purgeInstanceDependents(instanceId: string) {
     await prisma.contactCampaign.deleteMany({ where: { id: { in: ccIds } } });
   }
 
-  // 5. Conversations (messages) for contacts linked to this instance, then unlink contacts
+  // 5. Unlink contacts linked to this instance
   const contacts = await prisma.contact.findMany({
     where: { instanceId },
     select: { id: true },
   });
   const contactIds = contacts.map((c) => c.id);
   if (contactIds.length > 0) {
-    await prisma.message.deleteMany({ where: { contactId: { in: contactIds } } });
     await prisma.contact.updateMany({ where: { id: { in: contactIds } }, data: { instanceId: null } });
   }
 
@@ -135,7 +134,6 @@ export async function PATCH(
   const updated = await prisma.whatsAppInstance.update({
     where: { id: instanceId },
     data: {
-      ...(body.conversationsEnabled !== undefined ? { conversationsEnabled: body.conversationsEnabled } : {}),
       ...(body.label !== undefined ? { label: body.label } : {}),
       ...ownerUpdate,
     },
