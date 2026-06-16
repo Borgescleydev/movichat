@@ -21,7 +21,6 @@ interface Contact {
   name: string;
   phone: string;
   email: string | null;
-  columnId: string;
 }
 
 interface ContactGroup {
@@ -29,12 +28,6 @@ interface ContactGroup {
   name: string;
   sourceGroupName: string | null;
   _count?: { items: number };
-}
-
-interface Column {
-  id: string;
-  name: string;
-  color: string;
 }
 
 interface ContactCampaign {
@@ -134,7 +127,6 @@ export default function ContactCampaignForm({ onClose, onSaved, editing, initial
     editing?.contacts?.map(c => c.contact.id) || []
   );
   const [contactSearch, setContactSearch] = useState("");
-  const [filterColumnId, setFilterColumnId] = useState("all");
 
   // Step 4 — Scheduling
   const [sendType, setSendType] = useState(editing?.sendType || "scheduled");
@@ -158,7 +150,6 @@ export default function ContactCampaignForm({ onClose, onSaved, editing, initial
   const [templates, setTemplates] = useState<ContactTemplate[]>([]);
   const [instances, setInstances] = useState<Instance[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
-  const [columns, setColumns] = useState<Column[]>([]);
   const [contactGroups, setContactGroups] = useState<ContactGroup[]>([]);
   const [selectedContactGroupId, setSelectedContactGroupId] = useState("");
   const [loadingContacts, setLoadingContacts] = useState(false);
@@ -179,18 +170,12 @@ export default function ContactCampaignForm({ onClose, onSaved, editing, initial
 
   useEffect(() => {
     setLoadingContacts(true);
-    Promise.all([
-      fetch("/api/contacts").then(r => r.ok ? r.json() : []),
-      fetch("/api/pipeline").then(r => r.ok ? r.json() : []),
-    ]).then(([contactsData, pipelineData]) => {
-      setContacts(Array.isArray(contactsData) ? contactsData : []);
-      // Pipeline returns columns with contacts inside; extract just column info
-      const cols = Array.isArray(pipelineData)
-        ? pipelineData.map((c: { id: string; name: string; color: string }) => ({ id: c.id, name: c.name, color: c.color }))
-        : [];
-      setColumns(cols);
-      setLoadingContacts(false);
-    });
+    fetch("/api/contacts")
+      .then(r => r.ok ? r.json() : [])
+      .then(contactsData => {
+        setContacts(Array.isArray(contactsData) ? contactsData : []);
+        setLoadingContacts(false);
+      });
   }, []);
 
   const selectedTemplate = templates.find(t => t.id === templateId);
@@ -199,10 +184,8 @@ export default function ContactCampaignForm({ onClose, onSaved, editing, initial
     : [];
 
   const filteredContacts = contacts.filter(c => {
-    const matchesSearch = c.name.toLowerCase().includes(contactSearch.toLowerCase()) ||
+    return c.name.toLowerCase().includes(contactSearch.toLowerCase()) ||
       c.phone.includes(contactSearch);
-    const matchesColumn = filterColumnId === "all" || c.columnId === filterColumnId;
-    return matchesSearch && matchesColumn;
   });
 
   function toggleContact(id: string) {
@@ -212,11 +195,6 @@ export default function ContactCampaignForm({ onClose, onSaved, editing, initial
   function toggleAll() {
     if (selectedContactIds.length === filteredContacts.length) setSelectedContactIds([]);
     else setSelectedContactIds(filteredContacts.map(c => c.id));
-  }
-
-  function selectByColumn(colId: string) {
-    const colContactIds = contacts.filter(c => c.columnId === colId).map(c => c.id);
-    setSelectedContactIds(prev => [...new Set([...prev, ...colContactIds])]);
   }
 
   async function selectByContactGroup(groupId: string) {
@@ -461,29 +439,6 @@ export default function ContactCampaignForm({ onClose, onSaved, editing, initial
                 </span>
               </div>
 
-              {/* Filter by column */}
-              {columns.length > 0 && (
-                <div className="rounded-xl p-3" style={{ backgroundColor: "var(--primary-light)", border: "1px solid color-mix(in srgb, var(--primary) 25%, transparent)" }}>
-                  <p className="text-xs font-semibold mb-2" style={{ color: "var(--primary)" }}>Selecionar por coluna do pipeline:</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {columns.map(col => {
-                      const count = contacts.filter(c => c.columnId === col.id).length;
-                      return (
-                        <button
-                          key={col.id}
-                          type="button"
-                          onClick={() => selectByColumn(col.id)}
-                          className="text-xs px-2.5 py-1 rounded-lg font-medium"
-                          style={{ backgroundColor: col.color + "22", color: col.color, border: `1px solid ${col.color}44` }}
-                        >
-                          {col.name} ({count})
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
               {contactGroups.length > 0 && (
                 <div className="rounded-xl p-3" style={{ backgroundColor: "var(--page-bg)", border: "1px solid var(--border)" }}>
                   <p className="text-xs font-semibold mb-2" style={{ color: "var(--text-secondary)" }}>Carregar grupo de contatos coletado:</p>
@@ -517,17 +472,6 @@ export default function ContactCampaignForm({ onClose, onSaved, editing, initial
                     style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
                   />
                 </div>
-                <select
-                  value={filterColumnId}
-                  onChange={e => setFilterColumnId(e.target.value)}
-                  className="text-xs rounded-lg border px-2 py-2"
-                  style={{ borderColor: "var(--border)", color: "var(--text-primary)", backgroundColor: "var(--card-bg)" }}
-                >
-                  <option value="all">Todas colunas</option>
-                  {columns.map(col => (
-                    <option key={col.id} value={col.id}>{col.name}</option>
-                  ))}
-                </select>
                 <button onClick={toggleAll} className="text-xs font-medium px-3 py-2 rounded-lg border flex-shrink-0" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>
                   {selectedContactIds.length === filteredContacts.length && filteredContacts.length > 0 ? "Desmarcar todos" : "Marcar todos"}
                 </button>
@@ -545,7 +489,6 @@ export default function ContactCampaignForm({ onClose, onSaved, editing, initial
                 <div className="space-y-1 max-h-72 overflow-y-auto pr-1">
                   {filteredContacts.map(c => {
                     const selected = selectedContactIds.includes(c.id);
-                    const col = columns.find(col => col.id === c.columnId);
                     return (
                       <label
                         key={c.id}
@@ -566,11 +509,6 @@ export default function ContactCampaignForm({ onClose, onSaved, editing, initial
                           <p className="text-sm font-medium truncate" style={{ color: "var(--text-primary)" }}>{c.name}</p>
                           <p className="text-xs" style={{ color: "var(--text-muted)" }}>{c.phone}</p>
                         </div>
-                        {col && (
-                          <span className="text-xs px-2 py-0.5 rounded-full flex-shrink-0" style={{ backgroundColor: col.color + "22", color: col.color }}>
-                            {col.name}
-                          </span>
-                        )}
                       </label>
                     );
                   })}
