@@ -13,7 +13,7 @@ export default async function SettingsPage() {
       <div className="p-8">
         <div className="mb-6">
           <h1 className="text-2xl font-bold" style={{ color: "var(--text-primary)" }}>Configurações</h1>
-          <p style={{ color: "var(--text-muted)" }}>Gerencie perfil, usuários, pipeline e integrações</p>
+          <p style={{ color: "var(--text-muted)" }}>Gerencie perfil, usuários e integrações</p>
         </div>
         <Suspense fallback={<div className="flex items-center justify-center h-32"><div className="w-6 h-6 border-4 rounded-full animate-spin" style={{ borderColor: "var(--primary)", borderTopColor: "transparent" }} /></div>}>
           <SettingsClient userRole={user.role} />

@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "MoviChat - CRM WhatsApp",
-  description: "CRM de WhatsApp com pipeline Kanban",
+  description: "Automação de campanhas no WhatsApp",
 };
 
 export default function RootLayout({
