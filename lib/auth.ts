@@ -2,7 +2,10 @@ import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import { cookies } from "next/headers";
 
-const JWT_SECRET = process.env.JWT_SECRET || "movichat-secret-2024";
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  throw new Error("JWT_SECRET environment variable is not set");
+}
 
 export interface JWTPayload {
   userId: string;
@@ -14,9 +17,7 @@ export interface JWTPayload {
 
 export interface UserPerms {
   reports?: boolean;
-  pipeline?: boolean;
   contacts?: boolean;
-  conversations?: boolean;
   campaigns?: boolean;
   providers?: boolean;
   individual?: boolean;
