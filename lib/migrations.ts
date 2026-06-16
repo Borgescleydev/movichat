@@ -173,7 +173,6 @@ const MIGRATIONS = [
   },
   // --- ALTER TABLE columns (idempotent: error = already exists, safe to ignore) ---
   { name: "Contact_instanceId",  sql: `ALTER TABLE "Contact" ADD COLUMN "instanceId" TEXT REFERENCES "WhatsAppInstance"("id") ON DELETE SET NULL ON UPDATE CASCADE` },
-  { name: "Contact_lastReadAt",  sql: `ALTER TABLE "Contact" ADD COLUMN "lastReadAt" DATETIME` },
   // --- Campaign scheduling columns ---
   { name: "Campaign_channel",              sql: `ALTER TABLE "Campaign" ADD COLUMN "channel" TEXT NOT NULL DEFAULT 'whatsapp'` },
   { name: "Campaign_sendType",             sql: `ALTER TABLE "Campaign" ADD COLUMN "sendType" TEXT NOT NULL DEFAULT 'scheduled'` },
