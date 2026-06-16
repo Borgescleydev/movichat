@@ -109,11 +109,12 @@
 - Observado: full scan dos dispatches + recomputo em JS a cada 8s.
 - **Correção:** contagens (sent/failed/skipped/pending/total) agora via 1 `groupBy` por status no banco; lista de dispatches paginada (`?page`/`?limit`, default 100, máx 500) com `skip`/`take`. Resposta inclui `page`/`limit`.
 
-## F-303 | categoria: performance | severidade: media | status: aberto
+## F-303 | categoria: performance | severidade: media | status: corrigido
 - Arquivo: `components/campaigns/ManualDispatch.tsx:165-174` e render em `:389`
 - Problema: `filteredGroups` é uma IIFE (não memoizada) que **filtra + ordena (`localeCompare`) a cada render** — inclusive a cada tecla digitada no campo de busca (`groupSearch`) e a cada toggle de seleção. A lista é renderizada com `.map()` **sem virtualização** (l.389). Contas WhatsApp com centenas/milhares de grupos travam a digitação e a rolagem.
 - Esperado: `useMemo` para `filteredGroups` (deps: `groups`, `groupSearch`, `groupSort`, `selectedGroups`) + lista virtualizada (ex.: react-window) ou paginação.
 - Observado: re-sort O(n log n) em cada keystroke e render de todos os itens no DOM.
+- **Correção:** `filteredGroups` envolvido em `useMemo` com deps `[groups, groupSearch, groupSort, selectedGroups]`, eliminando o filtro+sort a cada render/keystroke. Virtualização da lista fica como melhoria futura (não introduzida para evitar nova dependência).
 
 ## F-304 | categoria: performance | severidade: media | status: corrigido
 - Arquivo: `components/campaigns/CampaignDetail.tsx:347-372`

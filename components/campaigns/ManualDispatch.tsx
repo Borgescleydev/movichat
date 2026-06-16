@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 
 interface Instance { id: string; label: string | null; instanceName: string; status: string; }
 interface Group { id: string; name: string; groupJid: string; participantCount: number; }
@@ -165,7 +165,9 @@ export default function ManualDispatch() {
 
   const [groupSort, setGroupSort] = useState<"selected" | "alpha">("selected");
 
-  const filteredGroups = (() => {
+  // Memoized so the filter + localeCompare sort only re-runs when its inputs change,
+  // instead of on every render (e.g. each keystroke in the search field).
+  const filteredGroups = useMemo(() => {
     const base = groups.filter((g) =>
       g.name.toLowerCase().includes(groupSearch.toLowerCase()) || g.groupJid.includes(groupSearch)
     );
@@ -174,7 +176,7 @@ export default function ManualDispatch() {
     const sel = base.filter((g) => selectedGroups.has(g.id)).sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
     const unsel = base.filter((g) => !selectedGroups.has(g.id)).sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
     return [...sel, ...unsel];
-  })();
+  }, [groups, groupSearch, groupSort, selectedGroups]);
 
   function toggleGroup(id: string) {
     setSelectedGroups((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
