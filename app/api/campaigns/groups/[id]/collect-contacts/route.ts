@@ -40,12 +40,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: "Nenhum contato valido foi encontrado no grupo" }, { status: 400 });
   }
 
-  const defaultColumn = await prisma.pipelineColumn.findFirst({ where: { isDefault: true } })
-    ?? await prisma.pipelineColumn.findFirst({ orderBy: { order: "asc" } });
-  if (!defaultColumn) {
-    return NextResponse.json({ error: "Crie uma coluna no pipeline antes de importar contatos" }, { status: 400 });
-  }
-
   const contactIds: { contactId: string; sourcePhone: string; sourceName?: string; rawJson?: string | null }[] = [];
   for (const participant of uniqueParticipants) {
     const contact = await prisma.contact.upsert({
@@ -57,7 +51,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       create: {
         name: participant.name || participant.phone,
         phone: participant.phone,
-        columnId: defaultColumn.id,
         instanceId: group.instanceId,
         notes: `Origem: grupo ${group.name}`,
       },
