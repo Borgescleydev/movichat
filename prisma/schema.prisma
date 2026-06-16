@@ -31,52 +31,22 @@ model User {
   manualSchedules     ScheduledManualDispatch[] @relation("ManualScheduleCreator")
 }
 
-model PipelineColumn {
-  id        String   @id @default(cuid())
-  name      String
-  order     Int
-  isDefault Boolean  @default(false)
-  color     String   @default("#6366f1")
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  contacts Contact[]
-}
-
 model Contact {
   id           String    @id @default(cuid())
   name         String
   phone        String    @unique
   email        String?
   notes        String?
-  columnId     String
   assignedToId String?
   instanceId   String?
-  lastReadAt   DateTime?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
-  column             PipelineColumn           @relation(fields: [columnId], references: [id])
   assignedTo         User?                    @relation("AssignedAgent", fields: [assignedToId], references: [id])
   instance           WhatsAppInstance?        @relation(fields: [instanceId], references: [id])
-  messages           Message[]
   campaignContacts   ContactCampaignContact[]
   campaignDispatches ContactCampaignDispatch[]
   contactGroupItems  ContactGroupItem[]
-}
-
-model Message {
-  id          String   @id @default(cuid())
-  contactId   String
-  body        String
-  fromMe      Boolean  @default(false)
-  timestamp   DateTime @default(now())
-  status      String   @default("received")
-  mediaUrl    String?  // full data URL (data:mime;base64,...) or remote URL
-  mediaType   String?  // "image" | "video" | "audio" | "document"
-  waMessageId String?  // WhatsApp message key.id for media fetching
-
-  contact Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
 }
 
 model WhatsAppSession {
@@ -114,7 +84,6 @@ model WhatsAppInstance {
   phone                String?
   qrCode               String?
   label                String?
-  conversationsEnabled Boolean  @default(false)
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 
