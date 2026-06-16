@@ -185,10 +185,15 @@ export async function runCampaignDispatcher(): Promise<DispatchResult> {
           await prisma.campaign.update({ where: { id: campaignId }, data: { status: "completed" } });
         } else {
           const newRunIndex = currentRunIndex + 1;
-          const existingNextRun = await prisma.campaignDispatch.count({ where: { campaignId, runIndex: newRunIndex } });
 
-          if (existingNextRun === 0) {
-            const groups = await prisma.campaignGroup.findMany({
+          // Criação atômica das remessas do próximo run: o check-then-act
+          // (count + createMany) corre dentro de uma transação para evitar
+          // que dois ticks concorrentes leiam 0 e ambos criem duplicatas.
+          await prisma.$transaction(async (tx) => {
+            const existingNextRun = await tx.campaignDispatch.count({ where: { campaignId, runIndex: newRunIndex } });
+            if (existingNextRun > 0) return;
+
+            const groups = await tx.campaignGroup.findMany({
               where: { campaignId },
               include: { group: true },
               orderBy: { order: "asc" },
@@ -223,8 +228,8 @@ export async function runCampaignDispatcher(): Promise<DispatchResult> {
               }
             }
 
-            await prisma.campaignDispatch.createMany({ data: newDispatches });
-          }
+            await tx.campaignDispatch.createMany({ data: newDispatches });
+          });
 
           await prisma.campaign.update({
             where: { id: campaignId },
