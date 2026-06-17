@@ -65,6 +65,15 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (body.repeatEveryUnit !== undefined) data.repeatEveryUnit = body.repeatEveryUnit || null;
   if (body.status !== undefined) data.status = body.status;
 
+  if (body.instanceId !== undefined) {
+    const isAdminOrAbove = ["superadmin", "admin"].includes(user.role);
+    const ownedInstance = await prisma.whatsAppInstance.findFirst({
+      where: { id: body.instanceId, ...(isAdminOrAbove ? {} : { ownerId: user.userId }) },
+      select: { id: true },
+    });
+    if (!ownedInstance) return NextResponse.json({ error: "Instância inválida ou sem permissão" }, { status: 403 });
+  }
+
   try {
     if (body.groupIds) {
       await prisma.campaignGroup.deleteMany({ where: { campaignId: id } });
