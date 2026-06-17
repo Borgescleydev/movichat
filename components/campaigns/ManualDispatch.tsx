@@ -64,6 +64,7 @@ export default function ManualDispatch() {
   const [mediaUrl, setMediaUrl] = useState("");
   const [mediaCaption, setMediaCaption] = useState("");
   const [mediaInputMode, setMediaInputMode] = useState<"file" | "url">("file");
+  const [mediaLoading, setMediaLoading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   // Templates
@@ -177,8 +178,11 @@ export default function ManualDispatch() {
       setMediaInputMode("url");
       // A listagem não traz mais mediaUrl (base64 pesado); busca o registro completo
       // sob demanda para garantir que o disparo de mídia receba o mediaUrl correto.
+      // Enquanto o fetch não resolve, mediaLoading=true mantém o disparo bloqueado
+      // para evitar broadcast texto-only sem a mídia (F-215).
       let cancelled = false;
       setMediaUrl("");
+      setMediaLoading(true);
       (async () => {
         try {
           const res = await fetch(`/api/campaigns/templates/${tpl.id}`);
@@ -188,10 +192,18 @@ export default function ManualDispatch() {
           }
         } catch {
           if (!cancelled) setMediaUrl("");
+        } finally {
+          if (!cancelled) setMediaLoading(false);
         }
       })();
       return () => { cancelled = true; };
     }
+    // Template só-texto: limpa mídia stale de uma seleção anterior e garante
+    // que o disparo não fique bloqueado por mediaLoading.
+    setMediaTab("none");
+    setMediaCaption("");
+    setMediaUrl("");
+    setMediaLoading(false);
   }, [selectedTemplate, templates]);
 
   // File selection → base64
@@ -283,11 +295,18 @@ export default function ManualDispatch() {
   const hasMedia = mediaTab !== "none" && effectiveMedia.trim();
   const msgOverLimit = message.length > MESSAGE_LIMIT;
   const capOverLimit = mediaCaption.length > CAPTION_LIMIT;
-  const canSend = isConnected && selectedGroups.size > 0 && (message.trim() || hasMedia) && !msgOverLimit && !capOverLimit && (dispatchMode === "now" || Boolean(scheduledFor));
+  const canSend = isConnected && selectedGroups.size > 0 && (message.trim() || hasMedia) && !msgOverLimit && !capOverLimit && !mediaLoading && (dispatchMode === "now" || Boolean(scheduledFor));
 
   async function dispatch() {
     if (!isConnected || selectedGroups.size === 0) return;
     setSendError("");
+    // F-215: o usuário escolheu enviar mídia (mediaTab !== "none"), mas o mediaUrl
+    // ainda não chegou (fetch assíncrono do template). Aborta para não disparar
+    // texto-only sem a mídia para N grupos.
+    if (mediaTab !== "none" && !effectiveMedia.trim()) {
+      setSendError("A mídia ainda está carregando. Aguarde um instante e tente novamente.");
+      return;
+    }
     if (msgOverLimit) {
       setSendError(`A mensagem excede o limite de ${MESSAGE_LIMIT.toLocaleString("pt-BR")} caracteres. Remova ${(message.length - MESSAGE_LIMIT).toLocaleString("pt-BR")} caractere(s).`);
       msgRef.current?.focus();
@@ -676,6 +695,11 @@ export default function ManualDispatch() {
                 <span className="flex items-center justify-center gap-2">
                   <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                   {dispatchMode === "scheduled" ? "Agendando..." : `Disparando para ${selectedGroups.size} grupo${selectedGroups.size !== 1 ? "s" : ""}...`}
+                </span>
+              ) : mediaLoading ? (
+                <span className="flex items-center justify-center gap-2">
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  Carregando mídia...
                 </span>
               ) : (
                 <span className="flex items-center justify-center gap-2">
