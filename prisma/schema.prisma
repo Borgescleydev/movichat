@@ -29,6 +29,7 @@ model User {
   dispatchGroups      DispatchGroup[]    @relation("DispatchGroupCreator")
   contactGroups       ContactGroup[]      @relation("ContactGroupCreator")
   manualSchedules     ScheduledManualDispatch[] @relation("ManualScheduleCreator")
+  quickDispatches     QuickDispatch[]    @relation("QuickDispatchCreator")
 }
 
 model Contact {
@@ -96,6 +97,7 @@ model WhatsAppInstance {
   contacts         Contact[]
   contactCampaigns ContactCampaign[]
   contactGroups    ContactGroup[]
+  quickDispatches  QuickDispatch[]
 }
 
 model WhatsAppGroup {
@@ -414,4 +416,46 @@ model SystemChangelog {
   deployedAt  DateTime @default(now())
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+model QuickDispatch {
+  id                String   @id @default(cuid())
+  name              String?
+  instanceId        String
+  message           String
+  mediaType         String?
+  mediaUrl          String?
+  mediaCaption      String?
+  status            String   @default("scheduled")
+  cadenceMinSeconds Int      @default(10)
+  cadenceMaxSeconds Int      @default(30)
+  cadenceMaxPerHour Int      @default(60)
+  startAt           DateTime @default(now())
+  createdById       String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  instance   WhatsAppInstance         @relation(fields: [instanceId], references: [id])
+  createdBy  User?                    @relation("QuickDispatchCreator", fields: [createdById], references: [id])
+  recipients QuickDispatchRecipient[]
+}
+
+model QuickDispatchRecipient {
+  id              String    @id @default(cuid())
+  quickDispatchId String
+  phone           String
+  varsJson        String    @default("{}")
+  order           Int       @default(0)
+  scheduledFor    DateTime
+  sentAt          DateTime?
+  status          String    @default("pending")
+  errorMessage    String?
+  messageId       String?
+  resolvedText    String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  quickDispatch QuickDispatch @relation(fields: [quickDispatchId], references: [id], onDelete: Cascade)
+
+  @@index([status, scheduledFor])
 }

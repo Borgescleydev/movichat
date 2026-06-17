@@ -206,6 +206,42 @@ const migrations = [
   )`,
   `CREATE INDEX IF NOT EXISTS "MessageTemplate_createdById_updatedAt_idx" ON "MessageTemplate"("createdById", "updatedAt")`,
   `CREATE INDEX IF NOT EXISTS "ContactTemplate_createdById_createdAt_idx" ON "ContactTemplate"("createdById", "createdAt")`,
+  `CREATE TABLE IF NOT EXISTS "QuickDispatch" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "name" TEXT,
+    "instanceId" TEXT NOT NULL,
+    "message" TEXT NOT NULL,
+    "mediaType" TEXT,
+    "mediaUrl" TEXT,
+    "mediaCaption" TEXT,
+    "status" TEXT NOT NULL DEFAULT 'scheduled',
+    "cadenceMinSeconds" INTEGER NOT NULL DEFAULT 10,
+    "cadenceMaxSeconds" INTEGER NOT NULL DEFAULT 30,
+    "cadenceMaxPerHour" INTEGER NOT NULL DEFAULT 60,
+    "startAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "createdById" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    FOREIGN KEY ("instanceId") REFERENCES "WhatsAppInstance"("id") ON UPDATE CASCADE,
+    FOREIGN KEY ("createdById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE
+  )`,
+  `CREATE TABLE IF NOT EXISTS "QuickDispatchRecipient" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "quickDispatchId" TEXT NOT NULL,
+    "phone" TEXT NOT NULL,
+    "varsJson" TEXT NOT NULL DEFAULT '{}',
+    "order" INTEGER NOT NULL DEFAULT 0,
+    "scheduledFor" DATETIME NOT NULL,
+    "sentAt" DATETIME,
+    "status" TEXT NOT NULL DEFAULT 'pending',
+    "errorMessage" TEXT,
+    "messageId" TEXT,
+    "resolvedText" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    FOREIGN KEY ("quickDispatchId") REFERENCES "QuickDispatch"("id") ON DELETE CASCADE ON UPDATE CASCADE
+  )`,
+  `CREATE INDEX IF NOT EXISTS "QuickDispatchRecipient_status_scheduledFor_idx" ON "QuickDispatchRecipient"("status", "scheduledFor")`,
 ];
 
 try {
