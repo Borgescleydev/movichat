@@ -91,6 +91,14 @@ export async function POST(req: NextRequest) {
 
   // --- Validações ---
   if (!instanceId) return NextResponse.json({ error: "Instância obrigatória" }, { status: 400 });
+
+  const isAdminOrAbove = ["superadmin", "admin"].includes(user.role);
+  const ownedInstance = await prisma.whatsAppInstance.findFirst({
+    where: { id: instanceId, ...(isAdminOrAbove ? {} : { ownerId: user.userId }) },
+    select: { id: true },
+  });
+  if (!ownedInstance) return NextResponse.json({ error: "Instância inválida ou sem permissão" }, { status: 403 });
+
   if (!message?.trim()) return NextResponse.json({ error: "Mensagem obrigatória" }, { status: 400 });
   if (!Array.isArray(recipients) || recipients.length === 0) {
     return NextResponse.json({ error: "Selecione ao menos um destinatário" }, { status: 400 });

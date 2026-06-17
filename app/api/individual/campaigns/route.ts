@@ -69,6 +69,13 @@ export async function POST(req: NextRequest) {
   if (!instanceId) return NextResponse.json({ error: "Instância obrigatória" }, { status: 400 });
   if (!isDraft && !contactIds?.length) return NextResponse.json({ error: "Selecione ao menos um contato" }, { status: 400 });
 
+  const isAdminOrAbove = ["superadmin", "admin"].includes(user.role);
+  const ownedInstance = await prisma.whatsAppInstance.findFirst({
+    where: { id: instanceId, ...(isAdminOrAbove ? {} : { ownerId: user.userId }) },
+    select: { id: true },
+  });
+  if (!ownedInstance) return NextResponse.json({ error: "Instância inválida ou sem permissão" }, { status: 403 });
+
   const resolvedSendType = sendType || "scheduled";
   const resolvedStartAt = resolvedSendType === "immediate" ? new Date() : (startAt ? new Date(startAt) : new Date());
 
