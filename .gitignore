@@ -52,3 +52,8 @@ next-env.d.ts
 
 .vercel
 .env*.local
+
+# local docs / tooling artifacts
+arq-evolution.txt
+.claude/
+.overclock-app/
