@@ -154,6 +154,8 @@ model MessageTemplate {
 
   createdBy User?      @relation("MessageTemplateCreator", fields: [createdById], references: [id])
   campaigns Campaign[]
+
+  @@index([createdById, updatedAt])
 }
 
 model Campaign {
@@ -331,6 +333,8 @@ model ContactTemplate {
 
   createdBy User?             @relation("ContactTemplateCreator", fields: [createdById], references: [id])
   campaigns ContactCampaign[]
+
+  @@index([createdById, createdAt])
 }
 
 model ContactCampaign {

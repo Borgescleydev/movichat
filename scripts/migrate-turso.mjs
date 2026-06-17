@@ -204,6 +204,8 @@ const migrations = [
     CURRENT_TIMESTAMP,
     CURRENT_TIMESTAMP
   )`,
+  `CREATE INDEX IF NOT EXISTS "MessageTemplate_createdById_updatedAt_idx" ON "MessageTemplate"("createdById", "updatedAt")`,
+  `CREATE INDEX IF NOT EXISTS "ContactTemplate_createdById_createdAt_idx" ON "ContactTemplate"("createdById", "createdAt")`,
 ];
 
 try {
