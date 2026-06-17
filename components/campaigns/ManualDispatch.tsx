@@ -168,7 +168,17 @@ export default function ManualDispatch() {
 
   // Apply template
   useEffect(() => {
-    if (!selectedTemplate) return;
+    if (!selectedTemplate) {
+      // Ao desselecionar o template (✕ ou voltar o select), o cleanup do effect
+      // anterior marca cancelled=true e o finally do fetch antigo pula o
+      // setMediaLoading(false). Resetamos aqui para o disparo não ficar travado
+      // em "Carregando mídia..." permanentemente (F-215).
+      setMediaTab("none");
+      setMediaCaption("");
+      setMediaUrl("");
+      setMediaLoading(false);
+      return;
+    }
     const tpl = templates.find((t) => t.id === selectedTemplate);
     if (!tpl) return;
     setMessage(tpl.body);
