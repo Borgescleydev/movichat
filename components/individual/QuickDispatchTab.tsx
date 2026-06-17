@@ -98,6 +98,23 @@ function sanitizeVarName(raw: string, fallbackIdx: number): string {
   return cleaned || `coluna_${fallbackIdx + 1}`;
 }
 
+/**
+ * Sanitiza todos os cabeçalhos garantindo nomes de variável ÚNICOS: em caso de
+ * colisão (ex.: "Nome" e "nome"), anexa sufixo incremental (`_2`, `_3`, ...)
+ * para que nenhuma coluna mapeada como variável seja descartada.
+ */
+function buildUniqueVarNames(headers: string[]): string[] {
+  const seen = new Set<string>();
+  return headers.map((h, i) => {
+    const base = sanitizeVarName(h, i);
+    let name = base;
+    let n = 2;
+    while (seen.has(name)) name = `${base}_${n++}`;
+    seen.add(name);
+    return name;
+  });
+}
+
 function looksLikePhoneHeader(header: string): boolean {
   const h = header.toLowerCase();
   return PHONE_HEADER_HINTS.some(hint => h.includes(hint));
@@ -186,6 +203,9 @@ export default function QuickDispatchTab() {
     }
   }, [rawText, hasHeader]);
 
+  // Nomes de variável sanitizados e únicos por coluna (índice alinhado a headers).
+  const uniqueVarNames = useMemo(() => (parsed ? buildUniqueVarNames(parsed.headers) : []), [parsed]);
+
   // Erro de parse derivado em render: há texto mas não há tabela útil.
   const parseError: string | null =
     rawText.trim() && (!parsed || parsed.rows.length === 0)
@@ -203,7 +223,7 @@ export default function QuickDispatchTab() {
       setColumnMap([]);
     } else {
       const phoneIdx = parsed.headers.findIndex(looksLikePhoneHeader);
-      setColumnMap(parsed.headers.map((h, i) => (i === phoneIdx ? PHONE_MAP : sanitizeVarName(h, i))));
+      setColumnMap(parsed.headers.map((_h, i) => (i === phoneIdx ? PHONE_MAP : uniqueVarNames[i])));
     }
   }
 
@@ -212,7 +232,7 @@ export default function QuickDispatchTab() {
       const next = [...prev];
       // garante telefone único: se escolher telefone, limpa outros telefones
       if (value === PHONE_MAP) {
-        for (let i = 0; i < next.length; i++) if (next[i] === PHONE_MAP) next[i] = sanitizeVarName(parsed?.headers[i] || "", i);
+        for (let i = 0; i < next.length; i++) if (next[i] === PHONE_MAP) next[i] = uniqueVarNames[i];
       }
       next[idx] = value;
       return next;
@@ -515,7 +535,7 @@ export default function QuickDispatchTab() {
                         >
                           <option value={IGNORE_MAP}>— ignorar —</option>
                           <option value={PHONE_MAP}>📱 Telefone</option>
-                          <option value={sanitizeVarName(h, i)}>{`{${sanitizeVarName(h, i)}}`}</option>
+                          <option value={uniqueVarNames[i]}>{`{${uniqueVarNames[i]}}`}</option>
                         </select>
                       </th>
                     ))}
