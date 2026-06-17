@@ -7,6 +7,20 @@ function extractVariables(body: string): string[] {
   return [...new Set(matches.map((m) => m.slice(2, -2)))];
 }
 
+export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const user = await getAuthUser();
+  if (!user) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
+
+  const { id } = await params;
+  const template = await prisma.messageTemplate.findUnique({ where: { id } });
+  if (!template) return NextResponse.json({ error: "Template não encontrado" }, { status: 404 });
+  if (!isSuperAdmin(user) && template.createdById !== user.userId) {
+    return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
+  }
+
+  return NextResponse.json(template);
+}
+
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await getAuthUser();
   if (!user) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });

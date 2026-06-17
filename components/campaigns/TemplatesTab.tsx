@@ -258,13 +258,24 @@ export default function TemplatesTab() {
     setShowForm(true);
   }
 
-  function openEdit(t: Template) {
+  async function openEdit(t: Template) {
     setEditing(t);
+    // A listagem não traz mais mediaUrl (base64 pesado); busca o registro completo sob demanda.
+    let mediaUrl = "";
+    try {
+      const res = await fetch(`/api/campaigns/templates/${t.id}`);
+      if (res.ok) {
+        const full = await res.json();
+        mediaUrl = full.mediaUrl || "";
+      }
+    } catch {
+      mediaUrl = "";
+    }
     setForm({
       name: t.name,
       body: t.body,
       mediaTab: (t.mediaType as MediaTab) || "none",
-      mediaUrl: t.mediaUrl || "",
+      mediaUrl,
       mediaCaption: t.mediaCaption || "",
       mediaInputMode: "url",
       mediaFile: null,

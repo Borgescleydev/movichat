@@ -98,14 +98,25 @@ export default function ContactTemplatesTab() {
     setShowForm(true);
   }
 
-  function openEdit(t: ContactTemplate) {
+  async function openEdit(t: ContactTemplate) {
     const variations = (() => { try { return JSON.parse(t.variations); } catch { return [""]; } })() as string[];
     setEditing(t);
+    // A listagem não traz mais mediaUrl (base64 pesado); busca o registro completo sob demanda.
+    let mediaUrl = "";
+    try {
+      const res = await fetch(`/api/individual/templates/${t.id}`);
+      if (res.ok) {
+        const full = await res.json();
+        mediaUrl = full.mediaUrl || "";
+      }
+    } catch {
+      mediaUrl = "";
+    }
     setForm({
       name: t.name,
       variations: variations.length ? variations : [""],
       mediaTab: (t.mediaType as MediaTab) || "none",
-      mediaUrl: t.mediaUrl || "",
+      mediaUrl,
       mediaCaption: t.mediaCaption || "",
       mediaInputMode: "url",
       mediaFile: null,

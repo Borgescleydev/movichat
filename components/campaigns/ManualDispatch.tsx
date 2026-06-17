@@ -173,9 +173,24 @@ export default function ManualDispatch() {
     setMessage(tpl.body);
     if (tpl.mediaType) {
       setMediaTab(tpl.mediaType as MediaTab);
-      setMediaUrl(tpl.mediaUrl || "");
       setMediaCaption(tpl.mediaCaption || "");
       setMediaInputMode("url");
+      // A listagem não traz mais mediaUrl (base64 pesado); busca o registro completo
+      // sob demanda para garantir que o disparo de mídia receba o mediaUrl correto.
+      let cancelled = false;
+      setMediaUrl("");
+      (async () => {
+        try {
+          const res = await fetch(`/api/campaigns/templates/${tpl.id}`);
+          if (res.ok && !cancelled) {
+            const full = await res.json();
+            setMediaUrl(full.mediaUrl || "");
+          }
+        } catch {
+          if (!cancelled) setMediaUrl("");
+        }
+      })();
+      return () => { cancelled = true; };
     }
   }, [selectedTemplate, templates]);
 

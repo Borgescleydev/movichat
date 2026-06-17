@@ -10,6 +10,16 @@ export async function GET() {
   const templates = await prisma.contactTemplate.findMany({
     where: ownerFilter,
     orderBy: { createdAt: "desc" },
+    select: {
+      id: true,
+      name: true,
+      variations: true,
+      mediaType: true,
+      mediaCaption: true,
+      createdById: true,
+      createdAt: true,
+      updatedAt: true,
+    },
   });
 
   return NextResponse.json(templates);
