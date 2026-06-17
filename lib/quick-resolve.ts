@@ -7,7 +7,9 @@
 
 /**
  * Resolve uma mensagem em duas etapas:
- *  1. SPIN  — tokens com pipe `{a|b|c}` viram UMA opção aleatória.
+ *  1. SPIN  — tokens com pipe `{a|b|c}` viram UMA opção aleatória. Uma opção
+ *     pode conter UM nível de chaves internas (tokens `{var}`); aninhamentos
+ *     mais profundos não são suportados.
  *  2. VARIÁVEIS — tokens `{nome}` viram built-ins (date/time) ou o valor de
  *     `vars` (lookup case-insensitive); ausente vira string vazia.
  *
@@ -17,8 +19,10 @@
 export function resolveQuickMessage(message: string, vars: Record<string, string>): string {
   if (!message) return "";
 
-  // Passo 1 (SPIN): tokens com pipe — escolhe uma opção aleatória.
-  let result = message.replace(/\{([^{}|]*\|[^{}]*)\}/g, (_match, group: string) => {
+  // Passo 1 (SPIN): tokens com pipe — escolhe uma opção aleatória. As opções
+  // aceitam UM nível de chaves internas (ex.: `{Olá {nome}|Oi}`), mas exigem ao
+  // menos um `|` de topo, para que `{var}` sozinho NÃO case como spin.
+  let result = message.replace(/\{((?:[^{}]|\{[^{}]*\})*\|(?:[^{}]|\{[^{}]*\})*)\}/g, (_match, group: string) => {
     const options = group.split("|");
     return options[Math.floor(Math.random() * options.length)];
   });
