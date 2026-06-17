@@ -4,10 +4,20 @@ import { useState } from "react";
 import ContactCampaignsTab from "./ContactCampaignsTab";
 import ContactTemplatesTab from "./ContactTemplatesTab";
 import ContactGroupsTab from "./ContactGroupsTab";
+import QuickDispatchTab from "./QuickDispatchTab";
 
-type Tab = "campanhas" | "grupos" | "templates";
+type Tab = "rapido" | "campanhas" | "grupos" | "templates";
 
 const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
+  {
+    id: "rapido",
+    label: "Disparo Rápido",
+    icon: (
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+      </svg>
+    ),
+  },
   {
     id: "campanhas",
     label: "Campanhas",
@@ -82,6 +92,7 @@ export default function IndividualClient() {
 
       {/* Tab content */}
       <div className="flex-1 overflow-auto p-8">
+        {tab === "rapido" && <QuickDispatchTab />}
         {tab === "campanhas" && (
           <ContactCampaignsTab
             initialContactGroupId={initialContactGroupId}
