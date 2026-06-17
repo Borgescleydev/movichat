@@ -82,11 +82,13 @@ export async function runContactDispatcher(): Promise<DispatchResult> {
   let errors = 0;
   let skipped = 0;
 
+  const staleCutoff = new Date(now.getTime() - 5 * 60 * 1000);
+
   const duePending = await prisma.contactCampaignDispatch.findMany({
     where: {
       OR: [
         { status: "pending" },
-        { status: "processing", updatedAt: { lt: new Date(now.getTime() - 5 * 60 * 1000) } },
+        { status: "processing", updatedAt: { lt: staleCutoff } },
       ],
       scheduledFor: { lte: now },
       campaign: { status: { in: ["scheduled", "running"] } },
@@ -127,7 +129,13 @@ export async function runContactDispatcher(): Promise<DispatchResult> {
     }
 
     const claimed = await prisma.contactCampaignDispatch.updateMany({
-      where: { id: dispatch.id, status: { in: ["pending", "processing"] } },
+      where: {
+        id: dispatch.id,
+        OR: [
+          { status: "pending" },
+          { status: "processing", updatedAt: { lt: staleCutoff } },
+        ],
+      },
       data: { status: "processing" },
     });
     if (claimed.count === 0) continue;

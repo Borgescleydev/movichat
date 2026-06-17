@@ -15,11 +15,13 @@ export async function runQuickDispatcher(): Promise<QuickDispatchRunResult> {
   let errors = 0;
   let skipped = 0;
 
+  const staleCutoff = new Date(now.getTime() - 5 * 60 * 1000);
+
   const duePending = await prisma.quickDispatchRecipient.findMany({
     where: {
       OR: [
         { status: "pending" },
-        { status: "processing", updatedAt: { lt: new Date(now.getTime() - 5 * 60 * 1000) } },
+        { status: "processing", updatedAt: { lt: staleCutoff } },
       ],
       scheduledFor: { lte: now },
       quickDispatch: { status: { in: ["scheduled", "running"] } },
@@ -55,7 +57,13 @@ export async function runQuickDispatcher(): Promise<QuickDispatchRunResult> {
 
     // Claim atômico: garante que apenas um worker processa este destinatário.
     const claimed = await prisma.quickDispatchRecipient.updateMany({
-      where: { id: recipient.id, status: { in: ["pending", "processing"] } },
+      where: {
+        id: recipient.id,
+        OR: [
+          { status: "pending" },
+          { status: "processing", updatedAt: { lt: staleCutoff } },
+        ],
+      },
       data: { status: "processing" },
     });
     if (claimed.count === 0) continue;
