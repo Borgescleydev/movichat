@@ -191,6 +191,24 @@
   - **Backfill pós-resposta confirmado:** o `create` grava `country=null`; após login com IP privado a linha `userSession` ficou com `country="Local"` — valor que **só** o callback `after()` escreve, provando que ele executou após a resposta. Usuário de teste temporário criado e removido ao final (base do Turso dev intacta); rota auxiliar de verificação criada e removida (não commitada).
 - **Commit:** `feea0ff` (id do commit do fix; um `--amend` posterior insere este próprio hash na nota, então o HEAD final pode diferir por uma iteração — ver `git log`) — "fix(F-309): torna geolocateIp não-bloqueante no login via after() pós-resposta".
 
+## F-310 | categoria: performance | severidade: alta | status: precisa-decisão
+- Arquivo: `app/api/auth/login/route.ts:49-69` (escrita `userSession.create` + uso do `session.id` como `jti`) — bloqueado por `lib/auth.ts:73-79`.
+- **Objetivo proposto:** remover o ~1s residual do login bem-sucedido, que é a **escrita** `prisma.userSession.create` indo ao primary Turso (escrita REMOTA; a embedded replica da F-308 só acelera LEITURAS — confirmado na F-308/F-309). A ideia era pré-gerar o id da sessão com `uuid` (já em `package.json`), assinar o token com esse `jti`, responder imediatamente, e mover o `create` (com id explícito — o schema `UserSession.id String @id @default(cuid())` aceita id explícito) para o `after()`, unificando com a geo da F-309.
+- **RACE CRÍTICA — por que NÃO desacoplei (investigação obrigatória):** o JWT **NÃO é auto-contido para autorização**. `getAuthUser()` (`lib/auth.ts:73-79`) valida a sessão contra o banco em **toda** request autenticada:
+  ```
+  if (payload.jti) {
+    const session = await prisma.userSession.findUnique({ where: { id: payload.jti }, select: { revokedAt, lastActiveAt } });
+    if (!session || session.revokedAt) return null;   // ← linha ausente ⇒ null ⇒ 403/logout
+  }
+  ```
+  Toda rota protegida passa por aqui (`app/api/sessions/route.ts`, `app/api/sessions/[id]/route.ts`, `getAuthUserFull` em guards de página, etc.). Se o `create` for diferido para `after()`, existe uma janela (≈ a latência da escrita remota, ~1s) em que o token é válido mas a linha `userSession` **ainda não existe**. O cliente tipicamente faz uma request autenticada (carregar dashboard) logo após receber o cookie — dentro dessa janela — e cai em `!session → return null → 403`, derrubando o usuário recém-logado. É exatamente o bug de logout intermitente que a tarefa mandou NÃO introduzir cegamente. (Confirmado também que linhas `userSession` **nunca são deletadas** — logout/revogação só setam `revokedAt`: `app/api/auth/logout/route.ts:10-13`, `app/api/sessions/[id]/route.ts:20-23,42-49`.)
+- **Decisão necessária — escolha do trade-off (nenhuma alteração feita no código):**
+  1. **Desacoplar + inverter o modelo de validação para deny-list** (recomendado *se* aprovado): id via `uuid` + `create` no `after()`, E em `getAuthUser` tratar linha **ausente** como VÁLIDA, rejeitando só quando `revokedAt` estiver setado. Como linhas nunca são deletadas, "linha ausente para um JWT com assinatura válida" passa a significar "sessão em criação". **Risco:** se o `create` no `after()` falhar silenciosamente (o `catch` engole), a linha nunca existe → o token fica válido por 7d **sem poder ser revogado** (logout/"revogar todas"/revogação por admin dependem de dar `update` numa linha existente) e **sem aparecer** na lista de sessões ativas. Enfraquece a garantia de revogação. Exige sign-off de segurança/produto.
+  2. **Janela de carência por `iat`:** desacoplar e, em `getAuthUser`, aceitar linha ausente **apenas** se a idade do token < N s (ex.: 10s); depois disso, exigir a linha. Limita a regressão à janela de criação e faz uma falha de `create` aparecer como 401 (em vez de persistir silenciosamente). Mais complexo.
+  3. **Manter `create` síncrono (status quo) e atacar o ~1s por infra:** a latência é a escrita no primary Turso. Opções sem race: aceitar (login é evento raro), aproximar o primary da região dos usuários, ou mover o registro de sessão para um store de escrita rápida (KV/Edge) — mudança arquitetural. Não atinge "dezenas de ms" sem mexer em infra, mas não introduz bug.
+- **Como verifiquei (estático, conclusivo — sem subir servidor pois não há fix a validar):** leitura de `app/api/auth/login/route.ts`, `lib/auth.ts`, `app/api/auth/logout/route.ts`, `app/api/sessions/route.ts`, `app/api/sessions/[id]/route.ts` e `prisma/schema.prisma`. A causa do ~1s (escrita remota do `create`) já estava documentada na F-309 (linha 189). A rejeição por linha ausente em `getAuthUser` é visível no código e atravessa todas as rotas protegidas — a race é certa, não probabilística, na navegação pós-login.
+- **Recomendação:** opção 1 ou 2 mediante decisão explícita de segurança; até lá, NÃO desacoplar. Login segue com `create` síncrono.
+
 ---
 
 # FASE 4 — Gestão de usuários (F-4XX)
