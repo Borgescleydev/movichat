@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { comparePassword, signToken, hashPassword } from "@/lib/auth";
 import { parseUserAgent, geolocateIp, getClientIp } from "@/lib/session-utils";
@@ -40,13 +40,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Credenciais inválidas" }, { status: 401 });
     }
 
-    // Gather session metadata
+    // Gather session metadata (geolocation is resolved after the response — see below)
     const ip = getClientIp(req);
     const ua = req.headers.get("user-agent") || "";
     const { browser, os, deviceType } = parseUserAgent(ua);
-    const geo = await geolocateIp(ip);
 
-    // Create session record
+    // Create session record without geo; it is backfilled post-response.
     const session = await prisma.userSession.create({
       data: {
         userId: user.id,
@@ -55,9 +54,9 @@ export async function POST(req: NextRequest) {
         browser,
         os,
         deviceType,
-        country: geo.country,
-        city: geo.city,
-        region: geo.region,
+        country: null,
+        city: null,
+        region: null,
       },
     });
 
@@ -67,6 +66,22 @@ export async function POST(req: NextRequest) {
       role: user.role,
       name: user.name,
       jti: session.id,
+    });
+
+    // Backfill geolocation after the response is sent. `after` is backed by
+    // waitUntil on serverless (Fluid Compute), so the work survives past the
+    // response without blocking login latency. Geo is best-effort: any error
+    // here is swallowed and must never affect authentication.
+    after(async () => {
+      try {
+        const geo = await geolocateIp(ip);
+        await prisma.userSession.update({
+          where: { id: session.id },
+          data: { country: geo.country, city: geo.city, region: geo.region },
+        });
+      } catch (err) {
+        console.error("geolocate backfill failed", err);
+      }
     });
 
     const response = NextResponse.json({ ok: true, user: { id: user.id, name: user.name, role: user.role } });
