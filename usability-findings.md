@@ -170,6 +170,16 @@
 - Esperado: filtrar no cliente sobre um único fetch, e `finally { setLoading(false) }`.
 - Observado: refetch por filtro + risco de loading travado.
 
+## F-308 | categoria: performance | severidade: alta | status: corrigido
+- Arquivo: `lib/prisma.ts:4-8` (config do adapter) + conflito `.env` vs `.env.local`.
+- **Causa raiz:** no Next.js o `.env.local` sobrescreve o `.env`. O `.env` definia `DATABASE_URL="file:./dev.db"` (SQLite local), mas o `.env.local` (gerado pela Vercel CLI) definia `DATABASE_URL="libsql://movichat-borgescleydev.aws-us-east-2.turso.io"` + `TURSO_AUTH_TOKEN`. Resultado: o `next dev` rodando no Brasil mandava **toda** query do Prisma para o Turso em AWS us-east-2 (EUA), pagando latência de rede por query. Medição direta: query remota ~**475–1550ms cada**. O `app/api/auth/login` agrava por fazer queries sequenciais (`count`→`findUnique`→`create`).
+- **Correção (abordagem PREFERIDA — Embedded Replica do libsql):** `lib/prisma.ts` passou a detectar DEV local apontando para Turso remoto (`NODE_ENV !== "production"` + URL `libsql/https/wss` + `TURSO_AUTH_TOKEN`) e, nesse caso, instancia `new PrismaLibSql({ url: "file:./dev-local.db", syncUrl: <URL Turso>, authToken, syncInterval: 60 })`. As **leituras** passam a ser locais (arquivo replicado) e a **sincronização/escrita** continua usando as credenciais EXISTENTES do Turso — ou seja, as credenciais permanecem ativas, sem precisar mexer no `.env.local`. Em **produção (Vercel)** o caminho cai no `else` e usa o Turso remoto direto (igual antes); embedded replica não é usado em prod (FS efêmero/read-only). Confirmado nos tipos do node_modules que `@prisma/adapter-libsql@7.8.0` repassa `Config` ao `@libsql/client@0.17.3`, cujo `Config` aceita `syncUrl`/`syncInterval`/`authToken` (`node_modules/@libsql/core/lib-esm/api.d.ts:18-22`). `.gitignore`: adicionados `*.db-info` e `*.db-client_wal_index` (metadados da réplica; `*.db`/`-wal`/`-shm` já cobertos). Nenhum segredo commitado (`.env*` continua ignorado).
+- **Como verifiquei:**
+  - **Bench libsql direto:** query remota ~475ms (1ª 1549ms); embedded replica = sync inicial único 2508ms, depois leituras locais **0.6ms / 0.3ms** (~1000x por query).
+  - **`next dev` + POST /api/auth/login:** após warm-up de compilação, login com credenciais inválidas → **401 em ~24ms** (antes seria ~1s+ por count+findUnique remotos). Com usuário de teste temporário (criado e removido no Turso dev ao final, base voltou a 3 usuários) → credenciais válidas **200**, inválidas **401**. Login NÃO continua fazendo round-trip remoto por leitura.
+  - **Produção:** lógica do login intacta; ramo de produção inalterado (Turso direto). Sem breaking change.
+- **Observação não corrigida (secundária, fora do escopo do roteamento de banco):** no caminho de sucesso do login, `geolocateIp` (`lib/session-utils.ts:70`) é um `fetch` externo **bloqueante** (timeout 3s) e domina a latência do 200 (~1.2s no teste, pois IP `unknown` ainda vai à `ip-api.com`). Poderia ser diferido/não-bloqueante, mas não alterado aqui para manter o fix focado e de baixo risco.
+
 ---
 
 # FASE 4 — Gestão de usuários (F-4XX)
