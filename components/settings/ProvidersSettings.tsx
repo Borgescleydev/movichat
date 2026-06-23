@@ -1326,7 +1326,7 @@ function InstanceRow({ instance, showOwner, isAdmin, onDisconnect, onDeleteInsta
               Desconectar
             </button>
           )}
-          {isAdmin && instance.status !== "connected" && (
+          {isAdmin && (
             <button
               onClick={onDeleteInstance}
               className="p-1.5 rounded-lg transition-colors"

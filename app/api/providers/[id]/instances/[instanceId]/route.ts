@@ -84,7 +84,28 @@ export async function DELETE(
   }
 
   if (instance.status === "connected") {
-    return NextResponse.json({ error: "Desconecte a instância antes de removê-la" }, { status: 400 });
+    // The stored status can be stale — e.g. the instance was deleted directly on the
+    // Evolution server, leaving it "connected" forever and thus impossible to remove.
+    // Verify the LIVE status before blocking, so the lock reflects reality, not stale DB.
+    let liveStatus: string | null = null;
+    try {
+      const provider = getProvider(apiProvider.type);
+      liveStatus = await provider.getStatus(
+        { baseUrl: apiProvider.baseUrl, apiKey: apiProvider.apiKey },
+        instance.instanceName
+      );
+    } catch {
+      // Provider unreachable — can't confirm it's safe. Keep protecting it (use disconnect to force-remove).
+      liveStatus = null;
+    }
+
+    if (liveStatus === null || liveStatus === "connected") {
+      // Genuinely connected (or unverifiable) — keep the guard so an in-use instance isn't deleted.
+      return NextResponse.json({ error: "Desconecte a instância antes de removê-la" }, { status: 400 });
+    }
+
+    // Status was stale (orphaned instance) — sync local status and proceed with removal.
+    await prisma.whatsAppInstance.update({ where: { id: instanceId }, data: { status: liveStatus } });
   }
 
   // Only call the provider API when explicitly requested — never required for local-only cleanup
