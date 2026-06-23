@@ -674,7 +674,7 @@ JWT 7d + sessões revogáveis; papéis superadmin/admin/agent com permissões JS
   5. **Outros ramos intactos:** 503 em produção sem `CRON_SECRET` (F-218) e execução aberta em dev sem secret permanecem idênticos.
   - **Validação:** `npx tsc --noEmit` no projeto → EXIT=0 (sem erros). Leitura dos 3 casos: (a) `Bearer <secret>` com espaços/newline extras → `trim()` em ambos os lados ⇒ autoriza; (b) header ausente → `token=""` ⇒ não autoriza, 401 com log `Authorization ausente`; (c) `x-vercel-cron: 1` → autoriza independentemente do token. Consultei `node_modules/next/dist/docs/01-app/01-getting-started/15-route-handlers.md` (Next 16.2.6) conforme AGENTS.md — mudança é puramente lógica de auth interna, sem alteração estrutural do route handler.
   - **Config (orientação ao usuário, não-código):** se o 401 persistir após o fix, é a causa #1 (header não cadastrado/divergente no cron-job.org). No job do cron-job.org, adicione um header `Authorization` com valor `Bearer <CRON_SECRET>`, usando o MESMO valor exato setado em CRON_SECRET nas Environment Variables do Vercel, sem espaços nem newline no fim.
-  - **Arquivos:** `app/api/cron/campaign-dispatcher/route.ts`. **Commit:** <preenchido abaixo>.
+  - **Arquivos:** `app/api/cron/campaign-dispatcher/route.ts`. **Commit:** `cc3820c` (`fix(F-227): normaliza auth do cron (trim + Bearer case-insensitive) em tempo constante`).
 
 ---
 
