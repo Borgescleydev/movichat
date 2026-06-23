@@ -142,6 +142,14 @@ export async function DELETE(
       { timeout: 15000 }
     );
   } catch (err) {
+    // Idempotent removal: P2025 = "record to delete does not exist". The instance is
+    // already gone — e.g. a previous removal committed on the Turso primary but the local
+    // libsql embedded replica (syncInterval 60s) still listed it, or a double-click fired a
+    // second DELETE. The user's goal (instance removed from the system) is already met, so
+    // report success instead of the misleading "erro de remoção" the user was hitting.
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025") {
+      return NextResponse.json({ ok: true });
+    }
     // Surface the REAL reason (e.g. an FK relation not covered by the purge) instead of an
     // opaque 500 with no body, so the UI never falls back to the generic "Erro ao remover instância".
     const detail = err instanceof Error ? err.message : String(err);

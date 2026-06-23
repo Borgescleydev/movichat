@@ -61,6 +61,9 @@ export default function ProvidersSettings() {
   const [deleting, setDeleting] = useState(false);
   // Extra conscious acknowledgement required to remove a CONNECTED (in-use) instance
   const [deleteAck, setDeleteAck] = useState(false);
+  // Conscious confirmation required to remove a DISCONNECTED instance — lighter than the
+  // connected danger ack, but every removal must be deliberately confirmed (no one-click delete).
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
 
   // New instance naming modal
   const [newInstanceModal, setNewInstanceModal] = useState<Provider | null>(null);
@@ -77,6 +80,9 @@ export default function ProvidersSettings() {
   // An instance is "in use" for deletion purposes when it is NOT disconnected — this drives a
   // reinforced, irreversible-action confirmation (danger banner + explicit acknowledgement).
   const deleteIsConnected = deleteModal ? deleteModal.instance.status !== "disconnected" : false;
+  // A removal can only proceed once the status-appropriate confirmation is checked:
+  // connected → danger ack; disconnected → the lighter confirmation.
+  const deleteConfirmed = deleteIsConnected ? deleteAck : deleteConfirm;
 
   const loadProviders = useCallback(async () => {
     const res = await fetch("/api/providers");
@@ -339,6 +345,7 @@ export default function ProvidersSettings() {
 
   function openDeleteInstance(provider: Provider, instance: Instance) {
     setDeleteAck(false);
+    setDeleteConfirm(false);
     setDeleteModal({ provider, instance });
   }
 
@@ -540,7 +547,7 @@ export default function ProvidersSettings() {
                   </p>
                 </div>
               )}
-              {deleteIsConnected && (
+              {deleteIsConnected ? (
                 <label className="flex items-start gap-2.5 px-3 py-3 rounded-xl cursor-pointer transition-colors" style={{ border: "1px solid color-mix(in srgb, var(--danger) 35%, transparent)", backgroundColor: deleteAck ? "color-mix(in srgb, var(--danger) 8%, transparent)" : "transparent" }}>
                   <input
                     type="checkbox"
@@ -554,13 +561,27 @@ export default function ProvidersSettings() {
                     Entendo o risco e que <span className="font-semibold" style={{ color: "var(--danger)" }}>não há como reverter</span> esta ação.
                   </span>
                 </label>
+              ) : (
+                <label className="flex items-start gap-2.5 px-3 py-3 rounded-xl cursor-pointer transition-colors" style={{ border: "1px solid color-mix(in srgb, var(--warning) 35%, transparent)", backgroundColor: deleteConfirm ? "color-mix(in srgb, var(--warning) 8%, transparent)" : "transparent" }}>
+                  <input
+                    type="checkbox"
+                    checked={deleteConfirm}
+                    onChange={(e) => setDeleteConfirm(e.target.checked)}
+                    disabled={deleting}
+                    className="mt-0.5 w-4 h-4 flex-shrink-0"
+                    style={{ accentColor: "var(--warning)" }}
+                  />
+                  <span className="text-xs" style={{ color: "var(--text-secondary)" }}>
+                    Confirmo que desejo <span className="font-semibold">remover esta instância</span>.
+                  </span>
+                </label>
               )}
               <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
                 Escolha como deseja remover esta instância:
               </p>
               <button
                 onClick={() => confirmDeleteInstance(false)}
-                disabled={deleting || (deleteIsConnected && !deleteAck)}
+                disabled={deleting || !deleteConfirmed}
                 className="w-full flex items-start gap-3 px-4 py-4 rounded-xl border-2 text-left transition-all disabled:opacity-40 disabled:cursor-not-allowed"
                 style={{ borderColor: "var(--border)", backgroundColor: "var(--card-bg)" }}
                 onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--warning)"; e.currentTarget.style.backgroundColor = "color-mix(in srgb, var(--warning) 8%, transparent)"; }}
@@ -574,7 +595,7 @@ export default function ProvidersSettings() {
               </button>
               <button
                 onClick={() => confirmDeleteInstance(true)}
-                disabled={deleting || (deleteIsConnected && !deleteAck)}
+                disabled={deleting || !deleteConfirmed}
                 className="w-full flex items-start gap-3 px-4 py-4 rounded-xl border-2 text-left transition-all disabled:opacity-40 disabled:cursor-not-allowed"
                 style={{ borderColor: "var(--border)", backgroundColor: "var(--card-bg)" }}
                 onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--danger)"; e.currentTarget.style.backgroundColor = "color-mix(in srgb, var(--danger) 8%, transparent)"; }}
