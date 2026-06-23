@@ -59,6 +59,8 @@ export default function ProvidersSettings() {
   // Delete instance modal
   const [deleteModal, setDeleteModal] = useState<{ provider: Provider; instance: Instance } | null>(null);
   const [deleting, setDeleting] = useState(false);
+  // Extra conscious acknowledgement required to remove a CONNECTED (in-use) instance
+  const [deleteAck, setDeleteAck] = useState(false);
 
   // New instance naming modal
   const [newInstanceModal, setNewInstanceModal] = useState<Provider | null>(null);
@@ -72,6 +74,9 @@ export default function ProvidersSettings() {
   const [assignSaving, setAssignSaving] = useState(false);
 
   const isAdmin = ["superadmin", "admin"].includes(currentUser?.role ?? "");
+  // An instance is "in use" for deletion purposes when it is NOT disconnected — this drives a
+  // reinforced, irreversible-action confirmation (danger banner + explicit acknowledgement).
+  const deleteIsConnected = deleteModal ? deleteModal.instance.status !== "disconnected" : false;
 
   const loadProviders = useCallback(async () => {
     const res = await fetch("/api/providers");
@@ -333,6 +338,7 @@ export default function ProvidersSettings() {
   }
 
   function openDeleteInstance(provider: Provider, instance: Instance) {
+    setDeleteAck(false);
     setDeleteModal({ provider, instance });
   }
 
@@ -515,21 +521,47 @@ export default function ProvidersSettings() {
               </div>
             </div>
             <div className="p-6 space-y-3">
-              <div className="flex items-start gap-2.5 px-3 py-3 rounded-xl" style={{ backgroundColor: "color-mix(in srgb, var(--warning) 12%, transparent)", border: "1px solid color-mix(in srgb, var(--warning) 30%, transparent)" }}>
-                <svg className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: "var(--warning)" }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                </svg>
-                <p className="text-xs" style={{ color: "var(--warning)" }}>
-                  <span className="font-semibold">Atenção:</span> ao remover esta instância, todas as conversas e mensagens vinculadas a ela serão excluídas permanentemente.
-                </p>
-              </div>
+              {deleteIsConnected ? (
+                <div className="flex items-start gap-2.5 px-3 py-3 rounded-xl" style={{ backgroundColor: "color-mix(in srgb, var(--danger) 14%, transparent)", border: "1px solid color-mix(in srgb, var(--danger) 45%, transparent)" }}>
+                  <svg className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: "var(--danger)" }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                  <p className="text-xs" style={{ color: "var(--danger)" }}>
+                    <span className="font-semibold">Esta instância está ATIVA / CONECTADA.</span> Removê-la vai interromper imediatamente o uso dela, e todas as conversas, mensagens e campanhas vinculadas serão excluídas permanentemente. <span className="font-semibold">Esta ação NÃO PODE SER REVERTIDA.</span>
+                  </p>
+                </div>
+              ) : (
+                <div className="flex items-start gap-2.5 px-3 py-3 rounded-xl" style={{ backgroundColor: "color-mix(in srgb, var(--warning) 12%, transparent)", border: "1px solid color-mix(in srgb, var(--warning) 30%, transparent)" }}>
+                  <svg className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: "var(--warning)" }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                  <p className="text-xs" style={{ color: "var(--warning)" }}>
+                    <span className="font-semibold">Atenção:</span> ao remover esta instância, todas as conversas e mensagens vinculadas a ela serão excluídas permanentemente.
+                  </p>
+                </div>
+              )}
+              {deleteIsConnected && (
+                <label className="flex items-start gap-2.5 px-3 py-3 rounded-xl cursor-pointer transition-colors" style={{ border: "1px solid color-mix(in srgb, var(--danger) 35%, transparent)", backgroundColor: deleteAck ? "color-mix(in srgb, var(--danger) 8%, transparent)" : "transparent" }}>
+                  <input
+                    type="checkbox"
+                    checked={deleteAck}
+                    onChange={(e) => setDeleteAck(e.target.checked)}
+                    disabled={deleting}
+                    className="mt-0.5 w-4 h-4 flex-shrink-0"
+                    style={{ accentColor: "var(--danger)" }}
+                  />
+                  <span className="text-xs" style={{ color: "var(--text-secondary)" }}>
+                    Entendo o risco e que <span className="font-semibold" style={{ color: "var(--danger)" }}>não há como reverter</span> esta ação.
+                  </span>
+                </label>
+              )}
               <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
                 Escolha como deseja remover esta instância:
               </p>
               <button
                 onClick={() => confirmDeleteInstance(false)}
-                disabled={deleting}
-                className="w-full flex items-start gap-3 px-4 py-4 rounded-xl border-2 text-left transition-all disabled:opacity-40"
+                disabled={deleting || (deleteIsConnected && !deleteAck)}
+                className="w-full flex items-start gap-3 px-4 py-4 rounded-xl border-2 text-left transition-all disabled:opacity-40 disabled:cursor-not-allowed"
                 style={{ borderColor: "var(--border)", backgroundColor: "var(--card-bg)" }}
                 onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--warning)"; e.currentTarget.style.backgroundColor = "color-mix(in srgb, var(--warning) 8%, transparent)"; }}
                 onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.backgroundColor = "var(--card-bg)"; }}
@@ -542,8 +574,8 @@ export default function ProvidersSettings() {
               </button>
               <button
                 onClick={() => confirmDeleteInstance(true)}
-                disabled={deleting}
-                className="w-full flex items-start gap-3 px-4 py-4 rounded-xl border-2 text-left transition-all disabled:opacity-40"
+                disabled={deleting || (deleteIsConnected && !deleteAck)}
+                className="w-full flex items-start gap-3 px-4 py-4 rounded-xl border-2 text-left transition-all disabled:opacity-40 disabled:cursor-not-allowed"
                 style={{ borderColor: "var(--border)", backgroundColor: "var(--card-bg)" }}
                 onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--danger)"; e.currentTarget.style.backgroundColor = "color-mix(in srgb, var(--danger) 8%, transparent)"; }}
                 onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.backgroundColor = "var(--card-bg)"; }}

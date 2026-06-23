@@ -45,7 +45,13 @@ async function purgeInstanceDependents(instanceId: string) {
     await prisma.contactCampaign.deleteMany({ where: { id: { in: ccIds } } });
   }
 
-  // 5. Unlink contacts linked to this instance
+  // 5. Quick dispatches owned by this instance.
+  // QuickDispatch.instance is a REQUIRED relation with no onDelete rule (schema.prisma),
+  // so Prisma defaults to Restrict — leftover rows here throw an opaque FK error and block
+  // the whole instance deletion. Deleting the dispatch cascades to QuickDispatchRecipient.
+  await prisma.quickDispatch.deleteMany({ where: { instanceId } });
+
+  // 6. Unlink contacts linked to this instance
   const contacts = await prisma.contact.findMany({
     where: { instanceId },
     select: { id: true },
@@ -56,7 +62,8 @@ async function purgeInstanceDependents(instanceId: string) {
   }
 
   // After this, prisma can safely delete the instance.
-  // Cascade will handle: WhatsAppGroup → DispatchGroupItem, ManualDispatchLog
+  // Cascade will handle: WhatsAppGroup → DispatchGroupItem, ManualDispatchLog,
+  // ScheduledManualDispatch; ContactGroup.sourceInstance is SetNull.
 }
 
 export async function DELETE(
@@ -83,29 +90,23 @@ export async function DELETE(
     return NextResponse.json({ error: "Sem permissão para excluir esta instância" }, { status: 403 });
   }
 
+  // Removal is NO LONGER blocked by connection status. A connected instance can be deleted —
+  // the user consciously confirms it in the UI (a reinforced, irreversible-action confirmation
+  // is shown for connected instances). The final gate is the user's confirmation, not a backend
+  // lock. We still best-effort sync the live status so the DB row isn't left stale if it differs.
   if (instance.status === "connected") {
-    // The stored status can be stale — e.g. the instance was deleted directly on the
-    // Evolution server, leaving it "connected" forever and thus impossible to remove.
-    // Verify the LIVE status before blocking, so the lock reflects reality, not stale DB.
-    let liveStatus: string | null = null;
     try {
       const provider = getProvider(apiProvider.type);
-      liveStatus = await provider.getStatus(
+      const liveStatus = await provider.getStatus(
         { baseUrl: apiProvider.baseUrl, apiKey: apiProvider.apiKey },
         instance.instanceName
       );
+      if (liveStatus && liveStatus !== instance.status) {
+        await prisma.whatsAppInstance.update({ where: { id: instanceId }, data: { status: liveStatus } });
+      }
     } catch {
-      // Provider unreachable — can't confirm it's safe. Keep protecting it (use disconnect to force-remove).
-      liveStatus = null;
+      // Provider unreachable — non-fatal, proceed with removal regardless.
     }
-
-    if (liveStatus === null || liveStatus === "connected") {
-      // Genuinely connected (or unverifiable) — keep the guard so an in-use instance isn't deleted.
-      return NextResponse.json({ error: "Desconecte a instância antes de removê-la" }, { status: 400 });
-    }
-
-    // Status was stale (orphaned instance) — sync local status and proceed with removal.
-    await prisma.whatsAppInstance.update({ where: { id: instanceId }, data: { status: liveStatus } });
   }
 
   // Only call the provider API when explicitly requested — never required for local-only cleanup
@@ -121,8 +122,19 @@ export async function DELETE(
     }
   }
 
-  await purgeInstanceDependents(instanceId);
-  await prisma.whatsAppInstance.delete({ where: { id: instanceId } });
+  try {
+    await purgeInstanceDependents(instanceId);
+    await prisma.whatsAppInstance.delete({ where: { id: instanceId } });
+  } catch (err) {
+    // Surface the REAL reason (e.g. an FK relation not covered by the purge) instead of an
+    // opaque 500 with no body, so the UI never falls back to the generic "Erro ao remover instância".
+    const detail = err instanceof Error ? err.message : String(err);
+    return NextResponse.json(
+      { error: `Não foi possível remover a instância: ${detail}` },
+      { status: 500 }
+    );
+  }
+
   return NextResponse.json({ ok: true });
 }
 
