@@ -1,15 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@/app/generated/prisma/client";
 import { getAuthUser } from "@/lib/auth";
 import { getProvider } from "@/lib/providers";
 
 /**
  * Removes all FK-constrained records that block a WhatsAppInstance deletion,
  * then unlinks contacts of this instance.
+ *
+ * Runs against the transactional client `tx` so that the purge and the
+ * subsequent instance delete are atomic: if the delete fails, every deleteMany
+ * here rolls back and no orphaned dependents are left behind.
  */
-async function purgeInstanceDependents(instanceId: string) {
+async function purgeInstanceDependents(tx: Prisma.TransactionClient, instanceId: string) {
   // 1. Groups belonging to this instance
-  const groups = await prisma.whatsAppGroup.findMany({
+  const groups = await tx.whatsAppGroup.findMany({
     where: { instanceId },
     select: { id: true },
   });
@@ -17,48 +22,48 @@ async function purgeInstanceDependents(instanceId: string) {
 
   // 2. Remove campaign records referencing these groups (from any campaign)
   if (groupIds.length > 0) {
-    await prisma.campaignDispatch.deleteMany({ where: { groupId: { in: groupIds } } });
-    await prisma.campaignGroup.deleteMany({ where: { groupId: { in: groupIds } } });
+    await tx.campaignDispatch.deleteMany({ where: { groupId: { in: groupIds } } });
+    await tx.campaignGroup.deleteMany({ where: { groupId: { in: groupIds } } });
   }
 
   // 3. Campaigns owned by this instance
-  const campaigns = await prisma.campaign.findMany({
+  const campaigns = await tx.campaign.findMany({
     where: { instanceId },
     select: { id: true },
   });
   const campaignIds = campaigns.map((c) => c.id);
   if (campaignIds.length > 0) {
-    await prisma.campaignDispatch.deleteMany({ where: { campaignId: { in: campaignIds } } });
-    await prisma.campaignGroup.deleteMany({ where: { campaignId: { in: campaignIds } } });
-    await prisma.campaign.deleteMany({ where: { id: { in: campaignIds } } });
+    await tx.campaignDispatch.deleteMany({ where: { campaignId: { in: campaignIds } } });
+    await tx.campaignGroup.deleteMany({ where: { campaignId: { in: campaignIds } } });
+    await tx.campaign.deleteMany({ where: { id: { in: campaignIds } } });
   }
 
   // 4. Contact campaigns owned by this instance
-  const contactCampaigns = await prisma.contactCampaign.findMany({
+  const contactCampaigns = await tx.contactCampaign.findMany({
     where: { instanceId },
     select: { id: true },
   });
   const ccIds = contactCampaigns.map((c) => c.id);
   if (ccIds.length > 0) {
-    await prisma.contactCampaignDispatch.deleteMany({ where: { campaignId: { in: ccIds } } });
-    await prisma.contactCampaignContact.deleteMany({ where: { campaignId: { in: ccIds } } });
-    await prisma.contactCampaign.deleteMany({ where: { id: { in: ccIds } } });
+    await tx.contactCampaignDispatch.deleteMany({ where: { campaignId: { in: ccIds } } });
+    await tx.contactCampaignContact.deleteMany({ where: { campaignId: { in: ccIds } } });
+    await tx.contactCampaign.deleteMany({ where: { id: { in: ccIds } } });
   }
 
   // 5. Quick dispatches owned by this instance.
   // QuickDispatch.instance is a REQUIRED relation with no onDelete rule (schema.prisma),
   // so Prisma defaults to Restrict — leftover rows here throw an opaque FK error and block
   // the whole instance deletion. Deleting the dispatch cascades to QuickDispatchRecipient.
-  await prisma.quickDispatch.deleteMany({ where: { instanceId } });
+  await tx.quickDispatch.deleteMany({ where: { instanceId } });
 
   // 6. Unlink contacts linked to this instance
-  const contacts = await prisma.contact.findMany({
+  const contacts = await tx.contact.findMany({
     where: { instanceId },
     select: { id: true },
   });
   const contactIds = contacts.map((c) => c.id);
   if (contactIds.length > 0) {
-    await prisma.contact.updateMany({ where: { id: { in: contactIds } }, data: { instanceId: null } });
+    await tx.contact.updateMany({ where: { id: { in: contactIds } }, data: { instanceId: null } });
   }
 
   // After this, prisma can safely delete the instance.
@@ -123,8 +128,19 @@ export async function DELETE(
   }
 
   try {
-    await purgeInstanceDependents(instanceId);
-    await prisma.whatsAppInstance.delete({ where: { id: instanceId } });
+    // Purge dependents and delete the instance atomically: if the delete fails,
+    // the whole purge rolls back so we never leave orphaned campaigns/dispatches/
+    // unlinked contacts behind. The external provider call above stays OUT of the
+    // transaction — network work doesn't belong in a DB transaction.
+    // Bumped timeout above the ~5s interactive default: the purge runs several
+    // deleteMany passes and can be slow on high-volume instances.
+    await prisma.$transaction(
+      async (tx) => {
+        await purgeInstanceDependents(tx, instanceId);
+        await tx.whatsAppInstance.delete({ where: { id: instanceId } });
+      },
+      { timeout: 15000 }
+    );
   } catch (err) {
     // Surface the REAL reason (e.g. an FK relation not covered by the purge) instead of an
     // opaque 500 with no body, so the UI never falls back to the generic "Erro ao remover instância".
