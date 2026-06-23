@@ -118,6 +118,7 @@ const migrations = [
   )`,
   `CREATE UNIQUE INDEX IF NOT EXISTS ContactCampaignDispatch_campaignId_contactId_runIndex_key ON ContactCampaignDispatch(campaignId, contactId, runIndex)`,
   `ALTER TABLE SystemSettings ADD COLUMN faviconBase64 TEXT`,
+  `ALTER TABLE SystemSettings ADD COLUMN lastCronRunJson TEXT`,
   `CREATE TABLE IF NOT EXISTS "SystemChangelog" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "version" TEXT NOT NULL,

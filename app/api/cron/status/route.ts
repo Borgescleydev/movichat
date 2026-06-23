@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/auth";
 import { runCampaignDispatcher } from "@/lib/campaign-dispatcher";
+import { readCronRun } from "@/lib/cron-run-log";
 
 export async function GET(_req: NextRequest) {
   const user = await getAuthUser();
@@ -16,6 +17,7 @@ export async function GET(_req: NextRequest) {
     scheduledCampaigns,
     recentDispatches,
     campaignCounts,
+    lastCronRun,
   ] = await Promise.all([
     prisma.campaignDispatch.count({ where: { status: "pending" } }),
     prisma.campaignDispatch.count({ where: { status: "processing" } }),
@@ -34,6 +36,9 @@ export async function GET(_req: NextRequest) {
       by: ["status"],
       _count: { id: true },
     }),
+    // F-229: último disparo do cron externo (autorizado/motivo/contagens) para a aba Cron
+    // exibir — torna o 401/503 mudo visível na UI.
+    readCronRun(),
   ]);
 
   const statusCounts: Record<string, number> = {};
@@ -47,6 +52,7 @@ export async function GET(_req: NextRequest) {
       path: "/api/cron/campaign-dispatcher",
       description: "Acionado por cron externo (cron-job.org) — sem Vercel Cron nativo",
     },
+    lastCronRun,
     queue: {
       pending: pendingCount,
       processing: processingCount,

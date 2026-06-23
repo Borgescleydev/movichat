@@ -2,8 +2,19 @@
 
 import { useEffect, useState, useCallback } from "react";
 
+interface LastCronRun {
+  ranAt: string;
+  authorized: boolean;
+  status: number;
+  reason: string;
+  dispatched?: number;
+  errors?: number;
+  skipped?: number;
+}
+
 interface CronStatus {
   cron: { schedule: string; path: string; description: string };
+  lastCronRun: LastCronRun | null;
   queue: { pending: number; processing: number };
   campaigns: { running: number; scheduled: number; all: Record<string, number> };
   recentDispatches: {
@@ -65,6 +76,69 @@ function CronExpressionGuide() {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+function LastCronRunCard({ run }: { run: LastCronRun | null }) {
+  if (!run) {
+    return (
+      <div className="bg-white border border-gray-200 rounded-xl p-5">
+        <div className="flex items-center gap-2 mb-1">
+          <div className="w-2.5 h-2.5 rounded-full bg-gray-300" />
+          <span className="text-sm font-semibold text-gray-900">Último disparo recebido</span>
+        </div>
+        <p className="text-xs text-gray-400">
+          Nenhuma chamada do cron externo foi registrada ainda. Se o cron-job.org já está ativo e nada aparece aqui, verifique a URL e o header <code>Authorization</code> na aba <strong>Configuração</strong>.
+        </p>
+      </div>
+    );
+  }
+
+  const ok = run.authorized && run.status === 200;
+  const tone = ok
+    ? { dot: "#16a34a", badgeBg: "#dcfce7", badgeColor: "#15803d", label: "OK" }
+    : { dot: "#dc2626", badgeBg: "#fee2e2", badgeColor: "#b91c1c", label: `Falha ${run.status}` };
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-xl p-5">
+      <div className="flex items-center gap-3 mb-3">
+        <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: tone.dot }} />
+        <span className="text-sm font-semibold text-gray-900">Último disparo recebido</span>
+        <span
+          className="ml-auto text-xs px-2 py-0.5 rounded font-medium"
+          style={{ backgroundColor: tone.badgeBg, color: tone.badgeColor }}
+        >
+          {tone.label}
+        </span>
+      </div>
+      <div className="space-y-1.5 text-xs">
+        <div className="flex gap-2">
+          <span className="text-gray-400 w-24 flex-shrink-0">Quando:</span>
+          <span className="text-gray-700">{fmt(run.ranAt)}</span>
+        </div>
+        <div className="flex gap-2">
+          <span className="text-gray-400 w-24 flex-shrink-0">Autorizado:</span>
+          <span className="text-gray-700">{run.authorized ? "sim" : "não"}</span>
+        </div>
+        <div className="flex gap-2">
+          <span className="text-gray-400 w-24 flex-shrink-0">Diagnóstico:</span>
+          <span className="text-gray-700 break-words">{run.reason}</span>
+        </div>
+        {ok && (
+          <div className="flex gap-2">
+            <span className="text-gray-400 w-24 flex-shrink-0">Despachados:</span>
+            <span className="text-gray-700">
+              {run.dispatched ?? 0} enviados · {run.errors ?? 0} erros · {run.skipped ?? 0} ignorados
+            </span>
+          </div>
+        )}
+      </div>
+      {!ok && (
+        <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-3">
+          O cron externo chegou ao endpoint mas foi <strong>rejeitado</strong>. Ajuste o header <code>Authorization: Bearer &lt;CRON_SECRET&gt;</code> na aba <strong>Configuração</strong> para bater com a env var <code>CRON_SECRET</code> do Vercel.
+        </p>
+      )}
     </div>
   );
 }
@@ -217,6 +291,9 @@ export default function CronSettings() {
                 </div>
                 <p className="text-xs text-gray-400">Configure um serviço externo (ex: cron-job.org) para chamar este endpoint a cada minuto. Veja a aba <strong>Configuração</strong>.</p>
               </div>
+
+              {/* F-229: Último disparo recebido pelo endpoint (autorizado ou falha de auth) */}
+              <LastCronRunCard run={status.lastCronRun} />
 
               {/* Stats grid */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">

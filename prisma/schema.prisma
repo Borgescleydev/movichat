@@ -298,10 +298,13 @@ model ContactGroupItem {
 }
 
 model SystemSettings {
-  id             String   @id @default("default")
-  themeJson      String   @default("{}")
-  faviconBase64  String?
-  updatedAt      DateTime @updatedAt
+  id              String   @id @default("default")
+  themeJson       String   @default("{}")
+  faviconBase64   String?
+  // F-229: último disparo do cron externo (observabilidade). JSON serializado com
+  // timestamp, se foi autorizado, motivo/diagnóstico (sem vazar o segredo) e contagens.
+  lastCronRunJson String?
+  updatedAt       DateTime @updatedAt
 }
 
 model UserSession {
