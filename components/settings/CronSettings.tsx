@@ -388,7 +388,7 @@ export default function CronSettings() {
             <h3 className="text-sm font-semibold text-gray-900">Fluxo de execução</h3>
             <ol className="space-y-3 text-sm text-gray-700">
               {[
-                ["Vercel dispara GET", `O Vercel chama GET /api/cron/campaign-dispatcher a cada minuto com o header x-vercel-cron: 1.`],
+                ["Cron externo dispara GET", `Um cron externo (cron-job.org) chama GET /api/cron/campaign-dispatcher a cada minuto com o header Authorization: Bearer <CRON_SECRET> (mesmo valor da env var CRON_SECRET no Vercel).`],
                 ["Busca dispatches pendentes", `Consulta CampaignDispatch onde status = "pending" | "processing" (stale > 5min) e scheduledFor ≤ agora. Limita a 15 por execução para não estourar o timeout da função.`],
                 ["Verifica janela de envio", `Para campanhas do tipo "windowed", verifica se o horário atual está dentro da janela configurada (windowStart, windowEnd, windowDays). Se não estiver, pula — será retentado na próxima execução.`],
                 ["Claim atômico", `Atualiza o dispatch para "processing" com updateMany onde status ainda é "pending". Evita processamento duplo em execuções simultâneas.`],
