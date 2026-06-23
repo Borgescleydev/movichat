@@ -319,8 +319,8 @@ export default function CronSettings() {
                 <>Acesse <strong>cron-job.org</strong> e crie uma conta gratuita</>,
                 <>Clique em <strong>Create cronjob</strong></>,
                 <>Em <strong>URL</strong>, cole o endpoint abaixo</>,
-                <>Em <strong>Schedule</strong>, selecione <strong>Every minute</strong></>,
-                <>Em <strong>Headers</strong>, adicione o header de autenticação (se tiver CRON_SECRET configurado)</>,
+                <>Em <strong>Schedule</strong>, selecione <strong>Every minute</strong> (método <strong>GET</strong>)</>,
+                <>Em <strong>Headers</strong>, adicione <strong>obrigatoriamente</strong> o header <code>Authorization: Bearer &lt;CRON_SECRET&gt;</code> (passo 2)</>,
                 <>Salve e ative o job</>,
               ].map((step, i) => (
                 <li key={i} className="flex gap-2">
@@ -339,18 +339,22 @@ export default function CronSettings() {
           <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-4">
             <div className="flex items-center gap-2">
               <span className="w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 text-xs font-bold flex items-center justify-center">2</span>
-              <h3 className="text-sm font-semibold text-gray-900">Proteger o endpoint (recomendado)</h3>
+              <h3 className="text-sm font-semibold text-gray-900">Proteger o endpoint (obrigatório em produção)</h3>
             </div>
             <p className="text-sm text-gray-600">
-              Para evitar que qualquer pessoa chame o dispatcher, configure a variável de ambiente no Vercel:
+              Em produção o endpoint <strong>exige</strong> autenticação: sem <code>CRON_SECRET</code> definido ele responde
+              <strong> 503</strong> e não roda; com <code>CRON_SECRET</code> definido, toda chamada sem o header correto responde
+              <strong> 401</strong>. Defina a variável de ambiente no Vercel:
             </p>
             <CodeBlock>CRON_SECRET=escolha_um_segredo_forte_aqui</CodeBlock>
             <p className="text-sm text-gray-600">
-              Depois adicione este header no cron-job.org (aba <strong>Headers</strong>):
+              E adicione <strong>exatamente</strong> este header no cron-job.org (aba <strong>Headers</strong>), com o
+              <strong> mesmo valor</strong> de <code>CRON_SECRET</code>:
             </p>
             <CodeBlock>{`Authorization: Bearer escolha_um_segredo_forte_aqui`}</CodeBlock>
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-700">
-              Configure a variável em: <strong>vercel.com → movichat → Settings → Environment Variables</strong>
+              Configure a variável em: <strong>vercel.com → movichat → Settings → Environment Variables</strong> (ambiente <strong>Production</strong>).
+              Se o valor mudar, atualize o header no cron-job.org — caso contrário as chamadas passam a retornar 401.
             </div>
           </div>
 
@@ -363,7 +367,7 @@ export default function CronSettings() {
             <p className="text-sm text-gray-600">Para verificar se o endpoint responde corretamente:</p>
             <CodeBlock>{`curl -X GET https://movichat.vercel.app/api/cron/campaign-dispatcher \\
   -H "Authorization: Bearer seu_cron_secret"`}</CodeBlock>
-            <p className="text-xs text-gray-400">Ou use o botão <strong>"Executar agora"</strong> no topo desta página — ele chama o dispatcher diretamente sem precisar do cURL.</p>
+            <p className="text-xs text-gray-400">Ou use o botão <strong>&quot;Executar agora&quot;</strong> no topo desta página — ele chama o dispatcher diretamente sem precisar do cURL.</p>
           </div>
 
           {/* Expressões cron */}

@@ -43,9 +43,9 @@ export async function GET(_req: NextRequest) {
 
   return NextResponse.json({
     cron: {
-      schedule: "* * * * *",
+      schedule: "externo",
       path: "/api/cron/campaign-dispatcher",
-      description: "Executa a cada minuto (Vercel Cron Jobs)",
+      description: "Acionado por cron externo (cron-job.org) — sem Vercel Cron nativo",
     },
     queue: {
       pending: pendingCount,
