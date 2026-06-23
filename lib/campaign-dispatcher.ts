@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { EvolutionApiProvider } from "@/lib/providers/evolution";
+import { checkInstanceForDispatch } from "@/lib/dispatch-instance-check";
 import { addDays, addWeeks, addMonths, addHours } from "date-fns";
 
 function resolveTemplate(body: string, variableValues: Record<string, string>, groupName: string): string {
@@ -119,12 +120,36 @@ export async function runCampaignDispatcher(): Promise<DispatchResult> {
 
     try {
       if (instance.status !== "connected") {
-        await prisma.campaignDispatch.update({
-          where: { id: dispatch.id },
-          data: { status: "skipped", errorMessage: "Instância desconectada" },
+        // O status no banco pode estar stale (instância órfã/derrubada na Evolution).
+        // Revalida ao vivo: se conectada, sincroniza e prossegue; se desconectada/inacessível,
+        // reagenda (volta a "pending") para retentar até a janela de 24h em vez de descartar.
+        const check = await checkInstanceForDispatch({
+          providerType: provider.type,
+          baseUrl: provider.baseUrl,
+          apiKey: provider.apiKey,
+          instanceId: instance.id,
+          instanceName: instance.instanceName,
+          dbStatus: instance.status,
+          scheduledFor: dispatch.scheduledFor,
+          now,
         });
-        skipped++;
-        continue;
+        if (check.action === "reschedule") {
+          await prisma.campaignDispatch.update({
+            where: { id: dispatch.id },
+            data: { status: "pending", errorMessage: check.reason },
+          });
+          skipped++;
+          continue;
+        }
+        if (check.action === "fail") {
+          await prisma.campaignDispatch.update({
+            where: { id: dispatch.id },
+            data: { status: "failed", errorMessage: check.reason },
+          });
+          errors++;
+          continue;
+        }
+        // action === "proceed": status sincronizado para "connected" — segue o envio normal.
       }
 
       const config = { baseUrl: provider.baseUrl, apiKey: provider.apiKey };

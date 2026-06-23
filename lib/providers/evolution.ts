@@ -256,18 +256,49 @@ export class EvolutionApiProvider implements WhatsAppProvider {
 
   async sendGroupMessage(config: ProviderConfig, instanceName: string, groupJid: string, text: string): Promise<SendMessageResult> {
     const base = config.baseUrl.replace(/\/$/, "");
-    const res = await fetch(`${base}/message/sendText/${instanceName}`, {
-      method: "POST",
-      headers: this.headers(config.apiKey),
-      body: JSON.stringify({ number: groupJid, text }),
-      signal: AbortSignal.timeout(15000),
-    });
-    if (!res.ok) {
-      const err = await res.text().catch(() => res.status.toString());
-      throw new Error(`Evolution API: falha ao enviar para grupo - ${err}`);
+
+    // PRÉ-CHECAGEM DE CONEXÃO: não tente enviar se a instância não estiver conectada.
+    // O "Connection Closed" do Baileys/Evolution ocorre quando o socket WhatsApp está
+    // desconectado no momento do envio — falhar cedo com mensagem acionável (mesmo padrão
+    // de sendGroupMedia).
+    const status = await this.getStatus(config, instanceName);
+    if (status !== "connected") {
+      throw new Error(`Evolution API: instância "${instanceName}" não está conectada (status: ${status}). Releia o QR Code e tente novamente.`);
     }
-    const data = await res.json();
-    return { messageId: data.key?.id || "", status: "sent" };
+
+    // RETRY EM "Connection Closed": a conexão pode cair durante o envio (instância
+    // instável). Tenta até 3 vezes, aguardando 1500ms entre elas — espelha sendGroupMedia.
+    const maxAttempts = 3;
+    let lastErrBody = "";
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const res = await fetch(`${base}/message/sendText/${instanceName}`, {
+        method: "POST",
+        headers: this.headers(config.apiKey),
+        body: JSON.stringify({ number: groupJid, text }),
+        signal: AbortSignal.timeout(15000),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        return { messageId: data.key?.id || "", status: "sent" };
+      }
+
+      const err = await res.text().catch(() => res.status.toString());
+      lastErrBody = err;
+      const isConnectionClosed = err.toLowerCase().includes("connection closed");
+
+      // Erros que não sejam "Connection Closed": falha imediata, sem retry.
+      if (!isConnectionClosed) {
+        throw new Error(`Evolution API: falha ao enviar para grupo - ${err}`);
+      }
+
+      // "Connection Closed": aguarda e tenta de novo, se ainda houver tentativas.
+      if (attempt < maxAttempts) {
+        await this.sleep(1500);
+      }
+    }
+
+    throw new Error(`Evolution API: a conexão da instância "${instanceName}" caiu durante o envio para o grupo após ${maxAttempts} tentativas (instância instável) - ${lastErrBody}`);
   }
 
   async sendGroupMedia(config: ProviderConfig, instanceName: string, groupJid: string, mediaType: string, mediaUrl: string, caption?: string, fileName?: string): Promise<SendMessageResult> {

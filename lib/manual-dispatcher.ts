@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { getProvider } from "@/lib/providers";
+import { checkInstanceForDispatch } from "@/lib/dispatch-instance-check";
 
 export interface ManualDispatchRunResult {
   processed: number;
@@ -44,12 +45,37 @@ export async function runManualDispatcher(): Promise<ManualDispatchRunResult> {
 
     try {
       if (job.instance.status !== "connected") {
-        await prisma.scheduledManualDispatch.update({
-          where: { id: job.id },
-          data: { status: "failed", errorMessage: "Instancia desconectada" },
+        // O status no banco pode estar stale (instância órfã/derrubada na Evolution).
+        // Revalida ao vivo antes de descartar: se de fato conectada, sincroniza e prossegue;
+        // se desconectada/inacessível, reagenda para retentar (até a janela de 24h) em vez
+        // de falhar em definitivo.
+        const check = await checkInstanceForDispatch({
+          providerType: job.instance.provider.type,
+          baseUrl: job.instance.provider.baseUrl,
+          apiKey: job.instance.provider.apiKey,
+          instanceId: job.instanceId,
+          instanceName: job.instance.instanceName,
+          dbStatus: job.instance.status,
+          scheduledFor: job.scheduledFor,
+          now,
         });
-        skipped++;
-        continue;
+        if (check.action === "reschedule") {
+          await prisma.scheduledManualDispatch.update({
+            where: { id: job.id },
+            data: { status: "scheduled", errorMessage: check.reason },
+          });
+          skipped++;
+          continue;
+        }
+        if (check.action === "fail") {
+          await prisma.scheduledManualDispatch.update({
+            where: { id: job.id },
+            data: { status: "failed", errorMessage: check.reason },
+          });
+          skipped++;
+          continue;
+        }
+        // action === "proceed": status sincronizado para "connected" — segue o envio normal.
       }
 
       const groupIds = JSON.parse(job.groupIds || "[]") as string[];
